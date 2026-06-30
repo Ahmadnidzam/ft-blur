@@ -1,11 +1,11 @@
 # FT Blur — Trend Blur Effect
 
-Tool web ringan & open source untuk merekam video dengan **blur otomatis lewat isyarat tangan 2 jari**. Semua proses berjalan di perangkatmu (client-side) — tidak ada server, tidak ada upload, privasi terjaga.
+Tool web ringan & open source untuk merekam video dengan **blur otomatis lewat isyarat tangan**. Semua proses berjalan di perangkatmu (client-side) — tidak ada server, tidak ada upload, privasi terjaga.
 
 ## Fitur
 
 - Rekam video langsung dari kamera HP/perangkat (depan/belakang).
-- **Deteksi gestur 2 jari** (peace sign) → area kamera otomatis di-blur.
+- **Deteksi gestur tangan** (lebih dari 1 jari terbuka) → area kamera otomatis di-blur.
 - Slider intensitas blur.
 - Efek audio yang ikut tergabung ke dalam video saat direkam.
 - Preview hasil & download (format `webm`/`mp4` otomatis sesuai dukungan browser).
@@ -28,7 +28,8 @@ Lalu buka `http://localhost:8000` (atau alamat yang ditampilkan `serve`).
 ## Cara kerja singkat
 
 - Kamera diambil via `getUserMedia`, frame digambar ke `<canvas>`.
-- [MediaPipe Tasks Vision `GestureRecognizer`](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer) mengenali gestur tangan; isyarat 2 jari memakai kategori bawaan **"Victory"** (lebih akurat & tahan rotasi).
+- [MediaPipe Tasks Vision `HandLandmarker`](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) mendeteksi 21 titik tangan; blur aktif saat **lebih dari 1 jari terbuka** (tahan rotasi & mudah tertangkap).
+- Blur memakai `CanvasRenderingContext2D.filter`; pada Safari iOS lama (tanpa dukungan filter) otomatis pakai fallback blur downscale.
 - Saat gestur terdeteksi, `<canvas>` diberi filter blur.
 - Audio efek diputar via Web Audio API dan track-nya digabung ke output rekaman.
 - `MediaRecorder` merekam canvas + audio, hasilnya bisa langsung diunduh.

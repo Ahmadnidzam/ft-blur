@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<!-- MediaPipe Tasks Vision — GestureRecognizer dimuat via dynamic import (lihat initHands) -->
+<!-- MediaPipe Tasks Vision — HandLandmarker dimuat via dynamic import (lihat initHands) -->
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -125,7 +125,7 @@
         <div style="text-align:center;display:flex;flex-direction:column;gap:14px">
           <h1>Trend Blur Effect</h1>
           <p class="lead">Lindungi privasimu — rekam &amp; blur otomatis dalam sekali sentuh.</p>
-          <p class="sub">Arahkan kamera ke wajah, angkat 2 jari, dan area itu langsung diburamkan — semuanya diproses di perangkatmu.</p>
+          <p class="sub">Arahkan kamera ke wajah, angkat tangan (lebih dari 1 jari), dan area itu langsung diburamkan — semuanya diproses di perangkatmu.</p>
         </div>
         <button class="btn-primary" id="startBtn">Mulai Rekam</button>
       </div>
@@ -295,11 +295,29 @@
   }
 
   // ---------- render loop (draw + blur) ----------
+  // Safari iOS < 17 tak mendukung CanvasRenderingContext2D.filter -> deteksi dukungan
+  const CANVAS_FILTER_OK = (()=>{ try{ const c=document.createElement('canvas').getContext('2d'); c.filter='blur(2px)'; return c.filter==='blur(2px)'; }catch(e){ return false; } })();
+  let blurCanvas=null, blurCtx=null; // offscreen utk fallback blur
   function drawFrame(){
     if(!cam.videoWidth) return;
     const w=canvas.width, h=canvas.height;
+    const mirror = state.facing==='user';
+    if(state.gestureActive && !CANVAS_FILTER_OK){
+      // Fallback iOS: blur via downscale lalu upscale dengan smoothing (gaya box-blur).
+      const scale = Math.max(2, blurPx()/1.5); // makin tinggi intensitas, makin kecil sampel
+      const sw = Math.max(1, Math.round(w/scale)), sh = Math.max(1, Math.round(h/scale));
+      if(!blurCanvas){ blurCanvas=document.createElement('canvas'); blurCtx=blurCanvas.getContext('2d'); }
+      blurCanvas.width=sw; blurCanvas.height=sh;
+      blurCtx.drawImage(cam,0,0,sw,sh);
+      ctx.save();
+      if(mirror){ ctx.translate(w,0); ctx.scale(-1,1); }
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+      ctx.drawImage(blurCanvas,0,0,sw,sh,0,0,w,h);
+      ctx.restore();
+      return;
+    }
     ctx.save();
-    if(state.facing==='user'){ ctx.translate(w,0); ctx.scale(-1,1); } // mirror selfie
+    if(mirror){ ctx.translate(w,0); ctx.scale(-1,1); } // mirror selfie
     ctx.filter = state.gestureActive ? ('blur('+blurPx()+'px)') : 'none';
     ctx.drawImage(cam,0,0,w,h);
     ctx.restore();
@@ -308,32 +326,32 @@
   function loop(){
     drawFrame();
     // feed MediaPipe Tasks (sinkron) — hanya saat ada frame video baru
-    if(gestureRecognizer && cam.videoWidth && cam.currentTime!==lastVideoTime){
+    if(handLandmarker && cam.videoWidth && cam.currentTime!==lastVideoTime){
       lastVideoTime = cam.currentTime;
-      try{ onHandsResults(gestureRecognizer.recognizeForVideo(cam, performance.now())); }
+      try{ onHandsResults(handLandmarker.detectForVideo(cam, performance.now())); }
       catch(e){ /* abaikan frame gagal */ }
     }
     state.rafId=requestAnimationFrame(loop);
   }
 
-  // ---------- MediaPipe Tasks Vision — GestureRecognizer ----------
+  // ---------- MediaPipe Tasks Vision — HandLandmarker ----------
   // API resmi terbaru (@mediapipe/tasks-vision); @mediapipe/hands lama sudah deprecated.
-  // Model mengenali gestur "Victory" (= isyarat 2 jari) langsung, jauh lebih akurat
-  // daripada heuristik landmark manual dan tahan terhadap rotasi/sudut tangan.
+  // Trigger: blur aktif bila lebih dari 1 jari terbuka (lebih fleksibel & gampang
+  // tertangkap daripada pose 2 jari spesifik).
   const TV_VER = '0.10.35';
-  const GESTURE_MODEL = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
-  let gestureRecognizer=null, handsReady=false, lastVideoTime=-1;
+  const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+  let handLandmarker=null, handsReady=false, lastVideoTime=-1;
   // hysteresis: kurangi false-trigger & kedip — gestur harus stabil beberapa frame
   let gOn=0, gOff=0; const G_ON_FRAMES=3, G_OFF_FRAMES=6;
-  const GESTURE_NAME='Victory', GESTURE_MIN_SCORE=0.5;
+  const MIN_FINGERS=2; // trigger bila jari terbuka > 1
   async function initHands(){
-    if(gestureRecognizer || handsReady) return;
+    if(handLandmarker || handsReady) return;
     try{
       const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER);
-      const { GestureRecognizer, FilesetResolver } = vision;
+      const { HandLandmarker, FilesetResolver } = vision;
       const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER+'/wasm');
-      gestureRecognizer = await GestureRecognizer.createFromOptions(fileset, {
-        baseOptions:{ modelAssetPath:GESTURE_MODEL, delegate:'GPU' },
+      handLandmarker = await HandLandmarker.createFromOptions(fileset, {
+        baseOptions:{ modelAssetPath:HAND_MODEL, delegate:'GPU' },
         runningMode:'VIDEO',
         numHands:1
       });
@@ -343,11 +361,23 @@
       showToast('Deteksi gestur tidak tersedia (butuh koneksi internet). Kamera & rekam tetap berfungsi.', 4500);
     }
   }
+  function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+  // pangkal (MCP) tiap jari sbg acuan lokal -> tahan rotasi tangan
+  const FINGER_MCP = {8:5, 12:9, 16:13, 20:17};
+  // jari terbuka bila ujung jauh dari pangkal; saat menutup ujung melipat dekat pangkal
+  function fingerOpen(lm, tip, pip){ return dist(lm[tip], lm[FINGER_MCP[tip]]) > dist(lm[pip], lm[FINGER_MCP[tip]]) * 1.4; }
+  function countFingers(lm){
+    let n=0;
+    if(fingerOpen(lm,8,6))  n++;  // telunjuk
+    if(fingerOpen(lm,12,10)) n++; // tengah
+    if(fingerOpen(lm,16,14)) n++; // manis
+    if(fingerOpen(lm,20,18)) n++; // kelingking
+    return n;
+  }
   function onHandsResults(res){
     let detected=false;
-    if(res && res.gestures && res.gestures.length){
-      const top = res.gestures[0][0]; // gestur teratas tangan pertama
-      detected = top && top.categoryName===GESTURE_NAME && top.score>=GESTURE_MIN_SCORE;
+    if(res && res.landmarks && res.landmarks.length){
+      detected = countFingers(res.landmarks[0]) >= MIN_FINGERS;
     }
     if(detected){ gOn++; gOff=0; } else { gOff++; gOn=0; }
     if(gOn>=G_ON_FRAMES) state.gestureActive=true;
@@ -388,6 +418,16 @@
   function stopEffectAudio(){
     if(audioNode){ try{ audioNode.stop(); }catch(e){} try{ audioNode.disconnect(); }catch(e){} audioNode=null; }
   }
+  // iOS: AudioContext mulai "suspended" & hanya bisa di-resume di dalam user gesture.
+  // Unlock sekali pada interaksi pertama agar suara efek terdengar & ikut terekam.
+  let audioUnlocked=false;
+  function unlockAudio(){
+    if(audioUnlocked) return; audioUnlocked=true;
+    ensureAudioCtx();
+    if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); }
+  }
+  document.addEventListener('touchend', unlockAudio, {passive:true});
+  document.addEventListener('click', unlockAudio);
 
   // ---------- recording ----------
   function pickMime(){
@@ -450,7 +490,7 @@
   const guideSteps=[
     { title:'Tombol Pengaturan', desc:'Ketuk ikon roda gigi di pojok kanan atas untuk membuka pengaturan audio & blur.' },
     { title:'Atur Audio & Blur', desc:'Nyalakan atau matikan Efek Audio, lalu geser Intensitas Blur sesuai keinginanmu.' },
-    { title:'Mulai Merekam', desc:'Tekan tombol bulat ini untuk merekam. Angkat 2 jari di depan kamera agar otomatis diburamkan.' }
+    { title:'Mulai Merekam', desc:'Tekan tombol bulat ini untuk merekam. Angkat tangan (lebih dari 1 jari) di depan kamera agar otomatis diburamkan.' }
   ];
   let guideStep=0;
   function renderGuide(){
@@ -478,7 +518,7 @@
   async function goRecorder(){
     home.classList.add('hidden'); recorder.classList.remove('hidden');
     lastVideoTime=-1;
-    if(!gestureRecognizer) initHands();
+    if(!handLandmarker) initHands();
     if(state.audioOn){ ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); } loadAudioBuffer(); } // pra-muat audio (tombol = gesture)
     const ok = await startCamera();
     if(state.rafId) cancelAnimationFrame(state.rafId);
