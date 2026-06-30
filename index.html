@@ -437,8 +437,12 @@
   document.addEventListener('click', unlockAudio);
 
   // ---------- recording ----------
-  // Audio efek direkam langsung lewat WebAudio -> MediaStreamDestination -> MediaRecorder.
-  // Syarat utama: file audio HARUS bisa di-decode (MP3 asli) supaya source berbunyi.
+  // Desktop: audio efek direkam langsung lewat WebAudio -> MediaRecorder.
+  // iOS/Safari: WebKit tidak meng-encode track WebAudio, jadi rekam video-only lalu
+  // gabung audio (AAC .m4a) ke MP4 hasil pakai mp4box.js (ringan ~200KB, lihat muxAudioIntoVideo).
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.platform)
+    || /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.maxTouchPoints>1 && /Mac/.test(navigator.platform)); // iPadOS menyamar sbg Mac
   function pickMime(){
     // utamakan MP4 (H.264/AAC) bila browser mendukung; jika tidak, jatuh ke WebM
     const types=['video/mp4;codecs=avc1.640029,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
@@ -449,13 +453,19 @@
     if(!state.stream){ showToast('Kamera belum aktif.', 2500); return; }
     const canvasStream = canvas.captureStream(30);
     const tracks = canvasStream.getVideoTracks();
+    state.muxAudio = false;
     if(state.audioOn){
       ensureAudioCtx();
       if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch(e){} }
       const ab = await loadAudioBuffer();
-      if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
-      startEffectAudio(); // bunyikan ke speaker + ke track rekaman
-      if(ab && audioDest){ audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); }
+      if(!ab && !IS_IOS){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
+      startEffectAudio(); // bunyikan ke speaker (monitor)
+      if(IS_IOS){
+        state.muxAudio = true; // gabung audio setelah stop (mp4box) — tak tergantung track recorder
+        if(!window.MP4Box) loadMP4Box().catch(()=>{}); // pra-muat
+      } else if(ab && audioDest){
+        audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); // desktop: rekam langsung
+      }
     }
     const recStream = new MediaStream(tracks);
     const mime = pickMime();
@@ -482,9 +492,19 @@
     state.recording=false;
     recBtn.classList.remove('is-rec'); recPill.classList.add('hidden');
   }
-  function onRecordingStop(){
-    const blob = new Blob(state.chunks, {type: state.lastMime});
-    const ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+  async function onRecordingStop(){
+    let blob = new Blob(state.chunks, {type: state.lastMime});
+    let ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+    if(state.muxAudio && ext==='mp4'){
+      try{
+        showToast('Menggabungkan audio…');
+        blob = await muxAudioIntoVideo(blob); ext='mp4';
+        hideToast();
+      }catch(e){
+        console.error('Mux audio gagal', e);
+        showToast('Audio gagal digabung: '+((e&&e.message)||e)+' — video tersimpan tanpa audio.', 6000);
+      }
+    }
     if(state.lastUrl) URL.revokeObjectURL(state.lastUrl);
     state.lastUrl = URL.createObjectURL(blob);
     resultVideo.src = state.lastUrl;
@@ -492,6 +512,78 @@
     downloadBtn.href = state.lastUrl;
     downloadBtn.download = 'ftblur_'+stamp+'.'+ext;
     modal.classList.remove('hidden');
+  }
+
+  // ---------- mux audio (mp4box.js) — gabung AAC m4a ke MP4 hasil rekam (untuk iOS) ----------
+  let mp4boxLoading=null;
+  function loadMP4Box(){
+    if(window.MP4Box) return Promise.resolve(window.MP4Box);
+    if(mp4boxLoading) return mp4boxLoading;
+    mp4boxLoading = new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js';
+      s.onload=()=>resolve(window.MP4Box);
+      s.onerror=()=>reject(new Error('gagal memuat mp4box'));
+      document.head.appendChild(s);
+    });
+    return mp4boxLoading;
+  }
+  function mp4Parse(MP4Box, ab){
+    return new Promise((resolve,reject)=>{
+      const file = MP4Box.createFile();
+      file.onError = e=>reject(new Error('parse: '+e));
+      file.onReady = info=>resolve({file, info});
+      ab.fileStart = 0; file.appendBuffer(ab); file.flush();
+    });
+  }
+  function mp4Samples(file, trackId){
+    const out=[];
+    file.onSamples = (id,user,samples)=>{ for(const s of samples) out.push(s); };
+    file.setExtractionOptions(trackId, null, {nbSamples: 1000000});
+    file.start(); file.flush();
+    return out; // pengiriman sinkron setelah buffer penuh di-append
+  }
+  function mp4Desc(MP4Box, trak){
+    const entry = trak.mdia.minf.stbl.stsd.entries[0];
+    const box = entry.avcC || entry.hvcC || entry.esds;
+    const ds = new MP4Box.DataStream(undefined, 0, MP4Box.DataStream.BIG_ENDIAN);
+    box.write(ds);
+    return ds.buffer.slice(8); // buang 8-byte header box (size+type)
+  }
+  async function muxAudioIntoVideo(videoBlob){
+    const MP4Box = await loadMP4Box();
+    const videoAB = await videoBlob.arrayBuffer();
+    const audioAB = await fetch('bck_sound_blur.m4a').then(r=>r.arrayBuffer());
+    const v = await mp4Parse(MP4Box, videoAB);
+    const a = await mp4Parse(MP4Box, audioAB);
+    const vTrak = v.info.videoTracks[0], aTrak = a.info.audioTracks[0];
+    if(!vTrak || !aTrak) throw new Error('track tidak ditemukan');
+    const vBox = v.file.getTrackById(vTrak.id), aBox = a.file.getTrackById(aTrak.id);
+    const vSamples = mp4Samples(v.file, vTrak.id);
+    const aSamples = mp4Samples(a.file, aTrak.id);
+
+    const out = MP4Box.createFile();
+    const vEntry = vBox.mdia.minf.stbl.stsd.entries[0];
+    const vId = out.addTrack({ timescale:vTrak.timescale, width:vEntry.width, height:vEntry.height,
+      avcDecoderConfigRecord: mp4Desc(MP4Box, vBox) });
+    const aEntry = aBox.mdia.minf.stbl.stsd.entries[0];
+    const aId = out.addTrack({ timescale:aTrak.timescale, type:'mp4a', hdlr:'soun', name:'SoundHandler',
+      samplerate:aEntry.samplerate, channel_count:aEntry.channel_count, samplesize:aEntry.samplesize||16,
+      description: aEntry.esds });
+
+    for(const s of vSamples){ out.addSample(vId, s.data, {duration:s.duration, dts:s.dts, cts:s.cts, is_sync:s.is_sync}); }
+    // ulang audio menutup durasi video
+    const vDur = vTrak.duration / vTrak.timescale;
+    let idx=0, dtsOffset=0; const aDurTs=aTrak.duration;
+    while(true){
+      const s = aSamples[idx];
+      if((dtsOffset+s.dts)/aTrak.timescale >= vDur) break;
+      out.addSample(aId, s.data, {duration:s.duration, dts:dtsOffset+s.dts, cts:dtsOffset+s.cts, is_sync:s.is_sync});
+      idx++;
+      if(idx>=aSamples.length){ idx=0; dtsOffset+=aDurTs; }
+      if(dtsOffset/aTrak.timescale > vDur + 30) break; // pengaman
+    }
+    return new Blob([out.getBuffer()], {type:'video/mp4'});
   }
 
   // ---------- onboarding guide ----------
