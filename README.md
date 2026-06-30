@@ -28,7 +28,7 @@ Lalu buka `http://localhost:8000` (atau alamat yang ditampilkan `serve`).
 ## Cara kerja singkat
 
 - Kamera diambil via `getUserMedia`, frame digambar ke `<canvas>`.
-- [MediaPipe Hands](https://developers.google.com/mediapipe) mendeteksi 21 titik tangan; logika sederhana mengenali isyarat 2 jari.
+- [MediaPipe Tasks Vision `GestureRecognizer`](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer) mengenali gestur tangan; isyarat 2 jari memakai kategori bawaan **"Victory"** (lebih akurat & tahan rotasi).
 - Saat gestur terdeteksi, `<canvas>` diberi filter blur.
 - Audio efek diputar via Web Audio API dan track-nya digabung ke output rekaman.
 - `MediaRecorder` merekam canvas + audio, hasilnya bisa langsung diunduh.

@@ -7,8 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<!-- MediaPipe Hands (deteksi gestur tangan) -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<!-- MediaPipe Tasks Vision — GestureRecognizer dimuat via dynamic import (lihat initHands) -->
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -252,7 +251,6 @@
     gestureActive:false,
     stream:null,          // camera MediaStream
     rafId:null,
-    detecting:false,
     seconds:0, timer:null,
     mediaRecorder:null, chunks:[], lastUrl:null, lastMime:'video/webm'
   };
@@ -309,47 +307,47 @@
   }
   function loop(){
     drawFrame();
-    // feed MediaPipe (throttled by busy lock)
-    if(hands && cam.videoWidth && !state.detecting){
-      state.detecting=true;
-      hands.send({image:cam}).catch(()=>{}).finally(()=>{ state.detecting=false; });
+    // feed MediaPipe Tasks (sinkron) — hanya saat ada frame video baru
+    if(gestureRecognizer && cam.videoWidth && cam.currentTime!==lastVideoTime){
+      lastVideoTime = cam.currentTime;
+      try{ onHandsResults(gestureRecognizer.recognizeForVideo(cam, performance.now())); }
+      catch(e){ /* abaikan frame gagal */ }
     }
     state.rafId=requestAnimationFrame(loop);
   }
 
-  // ---------- MediaPipe Hands ----------
-  let hands=null, handsReady=false;
+  // ---------- MediaPipe Tasks Vision — GestureRecognizer ----------
+  // API resmi terbaru (@mediapipe/tasks-vision); @mediapipe/hands lama sudah deprecated.
+  // Model mengenali gestur "Victory" (= isyarat 2 jari) langsung, jauh lebih akurat
+  // daripada heuristik landmark manual dan tahan terhadap rotasi/sudut tangan.
+  const TV_VER = '0.10.35';
+  const GESTURE_MODEL = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
+  let gestureRecognizer=null, handsReady=false, lastVideoTime=-1;
   // hysteresis: kurangi false-trigger & kedip — gestur harus stabil beberapa frame
   let gOn=0, gOff=0; const G_ON_FRAMES=3, G_OFF_FRAMES=6;
-  function initHands(){
-    if(typeof Hands==='undefined'){
-      console.warn('MediaPipe Hands tidak termuat (perlu internet).');
+  const GESTURE_NAME='Victory', GESTURE_MIN_SCORE=0.5;
+  async function initHands(){
+    if(gestureRecognizer || handsReady) return;
+    try{
+      const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER);
+      const { GestureRecognizer, FilesetResolver } = vision;
+      const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER+'/wasm');
+      gestureRecognizer = await GestureRecognizer.createFromOptions(fileset, {
+        baseOptions:{ modelAssetPath:GESTURE_MODEL, delegate:'GPU' },
+        runningMode:'VIDEO',
+        numHands:1
+      });
+      handsReady=true;
+    }catch(e){
+      console.warn('MediaPipe Tasks Vision gagal dimuat (perlu internet).', e);
       showToast('Deteksi gestur tidak tersedia (butuh koneksi internet). Kamera & rekam tetap berfungsi.', 4500);
-      return;
     }
-    hands = new Hands({ locateFile:(f)=>'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f });
-    // modelComplexity:1 lebih akurat dari 0; threshold lebih longgar tapi distabilkan hysteresis
-    hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
-    hands.onResults(onHandsResults);
-    handsReady=true;
-  }
-  function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
-  // pangkal (MCP) tiap jari, dipakai sbg acuan lokal -> tahan rotasi tangan
-  const FINGER_MCP = {8:5, 12:9, 16:13, 20:17};
-  // jari "terbuka" bila ujung (tip) jauh dari pangkalnya; saat menutup tip melipat
-  // mendekati pangkal sehingga rasionya jatuh di bawah ambang. lokal -> akurat di segala sudut.
-  function fingerExtend(lm, tip, pip){ return dist(lm[tip], lm[FINGER_MCP[tip]]) / dist(lm[pip], lm[FINGER_MCP[tip]]); }
-  function isPeace(lm){
-    const index = fingerExtend(lm,8,6)  > 1.6;   // telunjuk jelas terbuka
-    const middle= fingerExtend(lm,12,10) > 1.6;   // tengah jelas terbuka
-    const ring  = fingerExtend(lm,16,14) < 1.25;  // manis menutup
-    const pinky = fingerExtend(lm,20,18) < 1.25;  // kelingking menutup
-    return index && middle && ring && pinky; // 2 jari (telunjuk + tengah), sisanya menutup
   }
   function onHandsResults(res){
     let detected=false;
-    if(res.multiHandLandmarks && res.multiHandLandmarks.length){
-      detected = isPeace(res.multiHandLandmarks[0]);
+    if(res && res.gestures && res.gestures.length){
+      const top = res.gestures[0][0]; // gestur teratas tangan pertama
+      detected = top && top.categoryName===GESTURE_NAME && top.score>=GESTURE_MIN_SCORE;
     }
     if(detected){ gOn++; gOff=0; } else { gOff++; gOn=0; }
     if(gOn>=G_ON_FRAMES) state.gestureActive=true;
@@ -479,7 +477,8 @@
   // ---------- screen navigation ----------
   async function goRecorder(){
     home.classList.add('hidden'); recorder.classList.remove('hidden');
-    if(!hands) initHands();
+    lastVideoTime=-1;
+    if(!gestureRecognizer) initHands();
     if(state.audioOn){ ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); } loadAudioBuffer(); } // pra-muat audio (tombol = gesture)
     const ok = await startCamera();
     if(state.rafId) cancelAnimationFrame(state.rafId);
