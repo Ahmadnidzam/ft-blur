@@ -295,9 +295,11 @@
   }
 
   // ---------- render loop (draw + blur) ----------
-  // Blur selalu via downscale->upscale (smoothing). CanvasRenderingContext2D.filter
-  // 'blur()' tidak konsisten di Safari (iOS), jadi tidak dipakai sama sekali.
-  let blurCanvas=null, blurCtx=null; // offscreen utk blur
+  // Blur Gaussian halus via StackBlur pada buffer ter-downscale ringan lalu di-upscale
+  // dengan smoothing. CanvasRenderingContext2D.filter 'blur()' tak konsisten di Safari iOS.
+  let blurCanvas=null, blurCtx=null, stackBlur=null; // offscreen + lib blur
+  import('https://cdn.jsdelivr.net/npm/stackblur-canvas@2.7.0/dist/stackblur-es.min.js')
+    .then(m=>{ stackBlur=m; }).catch(()=>{}); // gagal -> fallback smoothing biasa
   function drawFrame(){
     if(!cam.videoWidth) return;
     const w=canvas.width, h=canvas.height;
@@ -305,11 +307,15 @@
     ctx.save();
     if(mirror){ ctx.translate(w,0); ctx.scale(-1,1); } // mirror selfie
     if(state.gestureActive){
-      const scale = Math.max(2, blurPx()/1.2); // makin tinggi intensitas, makin kecil sampel
-      const sw = Math.max(1, Math.round(w/scale)), sh = Math.max(1, Math.round(h/scale));
+      const ds = 3; // downscale ringan -> detail cukup, bukan blok kasar
+      const sw = Math.max(1, Math.round(w/ds)), sh = Math.max(1, Math.round(h/ds));
       if(!blurCanvas){ blurCanvas=document.createElement('canvas'); blurCtx=blurCanvas.getContext('2d'); }
       if(blurCanvas.width!==sw || blurCanvas.height!==sh){ blurCanvas.width=sw; blurCanvas.height=sh; }
       blurCtx.drawImage(cam,0,0,sw,sh);
+      if(stackBlur){
+        const r = Math.max(1, Math.round(blurPx()/ds*2)); // radius Gaussian pada buffer kecil
+        stackBlur.canvasRGBA(blurCanvas,0,0,sw,sh,r);
+      }
       ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
       ctx.drawImage(blurCanvas,0,0,sw,sh,0,0,w,h);
     } else {
@@ -454,7 +460,7 @@
       if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
       startEffectAudio(); // monitor suara via speaker
       if(IS_IOS){
-        state.muxAudio = !!ab; // iOS: audio digabung setelah stop
+        state.muxAudio = true; // iOS: audio digabung dari file mentah setelah stop (tak butuh decode)
       } else if(audioDest){
         audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); // desktop: rekam langsung
       }
@@ -489,12 +495,12 @@
     let ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
     if(state.muxAudio){
       try{
-        showToast('Menggabungkan audio…');
+        showToast(ffmpegInstance ? 'Menggabungkan audio…' : 'Menyiapkan audio (mengunduh ~30MB sekali saja)…');
         blob = await muxAudioIntoVideo(blob); ext='mp4';
         hideToast();
       }catch(e){
         console.error('Mux audio gagal', e);
-        showToast('Audio gagal digabung — video tersimpan tanpa audio.', 4000);
+        showToast('Audio gagal digabung: '+((e&&e.message)||e)+' — video tersimpan tanpa audio.', 7000);
       }
     }
     if(state.lastUrl) URL.revokeObjectURL(state.lastUrl);
@@ -508,18 +514,28 @@
 
   // ---------- ffmpeg.wasm (lazy, single-thread; tanpa SharedArrayBuffer agar jalan di GitHub Pages) ----------
   const FF_VER='0.12.15', FF_UTIL_VER='0.12.2', FF_CORE_VER='0.12.10';
-  let ffmpegInstance=null;
+  let ffmpegInstance=null, ffmpegLoading=null;
   async function getFFmpeg(){
     if(ffmpegInstance) return ffmpegInstance;
-    const { FFmpeg } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@'+FF_VER+'/dist/esm/index.js');
-    const { toBlobURL } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@'+FF_UTIL_VER+'/dist/esm/index.js');
-    const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@'+FF_CORE_VER+'/dist/umd';
-    const ff = new FFmpeg();
-    await ff.load({
-      coreURL: await toBlobURL(core+'/ffmpeg-core.js','text/javascript'),
-      wasmURL: await toBlobURL(core+'/ffmpeg-core.wasm','application/wasm'),
-    });
-    ffmpegInstance = ff; return ff;
+    if(ffmpegLoading) return ffmpegLoading;
+    ffmpegLoading = (async()=>{
+      const ffMod = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@'+FF_VER+'/dist/esm';
+      const { FFmpeg } = await import(ffMod+'/index.js');
+      const { toBlobURL } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@'+FF_UTIL_VER+'/dist/esm/index.js');
+      const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@'+FF_CORE_VER+'/dist/umd';
+      const ff = new FFmpeg();
+      ff.on('log', ({message})=>console.log('[ffmpeg]', message));
+      ff.on('progress', ({progress})=>{ if(state.muxAudio) showToast('Menggabungkan audio… '+Math.min(100,Math.round((progress||0)*100))+'%'); });
+      await ff.load({
+        // worker dimuat dari URL CDN (modul, cross-origin diizinkan via CORS) -> relative import-nya tetap resolve
+        classWorkerURL: ffMod+'/worker.js',
+        coreURL: await toBlobURL(core+'/ffmpeg-core.js','text/javascript'),
+        wasmURL: await toBlobURL(core+'/ffmpeg-core.wasm','application/wasm'),
+      });
+      ffmpegInstance = ff; return ff;
+    })();
+    try{ return await ffmpegLoading; }
+    finally{ ffmpegLoading = ffmpegInstance ? ffmpegLoading : null; }
   }
   async function muxAudioIntoVideo(videoBlob){
     const ff = await getFFmpeg();
