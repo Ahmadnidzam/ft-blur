@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>FT Blur — Trend Blur Effect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- MediaPipe Hands (deteksi gestur tangan) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:#e8e8ec;-webkit-font-smoothing:antialiased;font-family:Inter,system-ui,-apple-system,sans-serif;color:#1d1d1f}
+  button{font-family:inherit}
+  .hidden{display:none !important}
+  @keyframes ftblink{0%,49%{opacity:1}50%,100%{opacity:.15}}
+  @keyframes ftslideup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  input[type=range].ftslider{-webkit-appearance:none;appearance:none;height:4px;border-radius:9999px;background:#e0e0e5;outline:none}
+  input[type=range].ftslider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.08);box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer}
+  input[type=range].ftslider::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.08);box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer}
+
+  .app{min-height:100vh;min-height:100svh;min-height:100dvh;display:flex;align-items:stretch;justify-content:center}
+  .frame{position:relative;width:100%;max-width:460px;background:#fff;min-height:100vh;min-height:100svh;min-height:100dvh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 60px rgba(0,0,0,.08)}
+  /* layar besar (desktop/tablet): tampilkan sebagai bingkai ponsel terpusat */
+  @media (min-width:768px){ .app{padding:24px 0} .frame{min-height:min(880px,calc(100dvh - 48px));max-height:calc(100dvh - 48px);border-radius:28px} }
+
+  /* HOME */
+  .home{flex:1;display:flex;flex-direction:column;padding:28px 28px 0}
+  .home-logo{height:34px;width:auto;object-fit:contain}
+  .home-mid{flex:1;display:flex;flex-direction:column;justify-content:center;gap:26px;padding:32px 0}
+  .hint-badge{align-self:center;width:148px;height:148px;border-radius:34px;background:#f5f5f7;display:flex;align-items:center;justify-content:center}
+  .home h1{margin:0;font-size:40px;line-height:1.05;font-weight:600;letter-spacing:-1.2px}
+  .home .lead{margin:0;font-size:19px;line-height:1.35;color:#1d1d1f;letter-spacing:-.3px}
+  .home .sub{margin:4px 8px 0;font-size:15px;line-height:1.5;color:#6e6e73;letter-spacing:-.2px}
+  .btn-primary{appearance:none;border:none;cursor:pointer;width:100%;height:56px;border-radius:9999px;background:#0066cc;color:#fff;font-size:18px;font-weight:600;letter-spacing:-.3px}
+  .btn-primary:active{background:#0058b0}
+  .home-foot{border-top:1px solid #f0f0f0;padding:18px 0 24px;display:flex;flex-direction:column;gap:12px}
+
+  /* RECORDER */
+  .recorder{flex:1;position:relative;display:flex;flex-direction:column;background:#000;overflow:hidden}
+  #cam{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+  #canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;background:#000}
+  .cam-placeholder{position:absolute;inset:0;z-index:0;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(135deg,#16161a 0 14px,#1c1c20 14px 28px);color:#5a5a62;font-size:13px;text-align:center;padding:24px}
+  .overlay{position:relative;z-index:3;flex:1;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}
+  .top-zone{display:flex;flex-direction:column;gap:12px;padding:calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 30px calc(16px + env(safe-area-inset-left));background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
+  .row{display:flex;align-items:center;justify-content:space-between;pointer-events:auto}
+  .circle-btn{appearance:none;border:none;cursor:pointer;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.4);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;color:#fff}
+  .title{font-size:15px;font-weight:600;letter-spacing:-.2px;color:#fff}
+  .badges{display:flex;flex-wrap:wrap;gap:7px;pointer-events:auto}
+  .badge{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:6px 11px;border-radius:9999px}
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:#c7c7cc;transition:background .2s}
+  .badge .dot.on{background:#34c759}
+  .badge span.t{font-size:11.5px;font-weight:500;color:#fff;letter-spacing:-.1px;white-space:nowrap}
+  .rec-pill{display:flex;align-items:center;gap:7px;background:rgba(0,0,0,.5);backdrop-filter:blur(8px);padding:6px 12px;border-radius:9999px;align-self:flex-start;pointer-events:auto}
+  .rec-pill .rd{width:9px;height:9px;border-radius:50%;background:#ff3b30;animation:ftblink 1s steps(1) infinite}
+  .rec-pill .tx{font-size:12px;font-weight:700;color:#fff;letter-spacing:.6px}
+  .bottom-zone{padding:44px calc(24px + env(safe-area-inset-right)) calc(26px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));background:linear-gradient(0deg,rgba(0,0,0,.62),rgba(0,0,0,0));pointer-events:auto}
+  .controls{display:flex;align-items:center;justify-content:space-between}
+  .flip-btn{appearance:none;border:none;cursor:pointer;width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.16);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;color:#fff}
+  .rec-btn{appearance:none;cursor:pointer;width:84px;height:84px;border-radius:50%;background:rgba(255,255,255,.18);border:4px solid rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center;padding:0}
+  .rec-btn .inner{display:block;background:#0066cc;width:62px;height:62px;border-radius:50%;transition:all .18s}
+  .rec-btn.is-rec .inner{background:#ff3b30;width:30px;height:30px;border-radius:7px}
+  .meta{width:56px;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .meta .dur{font-family:ui-monospace,Menlo,monospace;font-size:16px;font-weight:600;letter-spacing:.5px;color:#fff}
+  .meta .fac{font-size:10px;font-weight:500;color:rgba(255,255,255,.7);letter-spacing:.2px}
+
+  /* settings popover */
+  .popover{position:absolute;top:62px;right:16px;z-index:6;width:252px;background:#fff;border-radius:18px;box-shadow:0 12px 36px rgba(0,0,0,.32);padding:16px;display:flex;flex-direction:column;gap:14px}
+  .pop-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .pop-row .lbl{font-size:14px;font-weight:600;letter-spacing:-.2px}
+  .pop-row .desc{font-size:11.5px;font-weight:400;color:#86868b}
+  .switch{appearance:none;border:none;cursor:pointer;flex:none;width:46px;height:28px;border-radius:9999px;padding:3px;background:#e0e0e5;display:flex;justify-content:flex-start;transition:background .15s}
+  .switch.on{background:#0066cc;justify-content:flex-end}
+  .switch .knob{width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .divider{height:1px;background:#f0f0f0}
+  .blur-head{display:flex;align-items:center;justify-content:space-between}
+  .blur-head label{font-size:14px;font-weight:600;color:#1d1d1f;letter-spacing:-.1px}
+  .blur-head .val{font-family:ui-monospace,Menlo,monospace;font-size:13px;font-weight:600;color:#0066cc}
+
+  /* coachmark guide */
+  .guide{position:absolute;inset:0;z-index:20;pointer-events:auto}
+  .spot{position:absolute;border-radius:50%;box-shadow:0 0 0 9999px rgba(12,12,15,.74);border:2px solid #fff}
+  .gcard{position:absolute;background:#fff;border-radius:18px;padding:15px 16px 14px;display:flex;flex-direction:column;gap:9px;box-shadow:0 12px 36px rgba(0,0,0,.3);max-width:calc(100% - 28px)}
+  .gcard h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f}
+  .gcard p{margin:0;font-size:13px;line-height:1.45;color:#6e6e73}
+  .gdots{display:flex;align-items:center;gap:6px}
+  .gdots .d{width:6px;height:6px;border-radius:50%;background:#d2d2d7}
+  .gdots .d.act{width:16px;border-radius:9999px;background:#0066cc}
+  .gdots .cnt{margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:600;letter-spacing:.5px;color:#86868b}
+  .gbtns{display:flex;align-items:center;gap:8px;margin-top:2px}
+  .gskip{flex:none;appearance:none;border:none;cursor:pointer;background:transparent;color:#86868b;font-size:13px;font-weight:600;padding:10px 4px}
+  .gnext{flex:1;appearance:none;border:none;cursor:pointer;height:40px;border-radius:9999px;background:#0066cc;color:#fff;font-size:14px;font-weight:600;letter-spacing:-.2px}
+
+  /* preview modal */
+  .modal{position:absolute;inset:0;z-index:30;background:rgba(20,20,22,.55);backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center}
+  .sheet{width:100%;background:#fff;border-radius:26px 26px 0 0;padding:14px 20px 26px;display:flex;flex-direction:column;gap:18px;animation:ftslideup .25s ease}
+  .sheet-head{display:flex;align-items:center;justify-content:space-between}
+  .sheet-head .h{font-size:18px;font-weight:600;letter-spacing:-.3px}
+  .x-btn{appearance:none;border:none;cursor:pointer;width:34px;height:34px;border-radius:50%;background:#f5f5f7;display:flex;align-items:center;justify-content:center;color:#1d1d1f}
+  #resultVideo{width:100%;aspect-ratio:3/4;border-radius:18px;background:#000;object-fit:contain}
+  .dl-btn{appearance:none;border:none;cursor:pointer;width:100%;height:54px;border-radius:9999px;background:#0066cc;color:#fff;font-size:17px;font-weight:600;letter-spacing:-.2px;display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none}
+  .re-btn{appearance:none;cursor:pointer;width:100%;height:54px;border-radius:9999px;background:transparent;color:#0066cc;border:1px solid #0066cc;font-size:17px;font-weight:600;letter-spacing:-.2px}
+
+  .toast{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;background:rgba(0,0,0,.82);color:#fff;padding:14px 18px;border-radius:14px;font-size:13px;line-height:1.45;max-width:300px;text-align:center;display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="frame">
+
+    <!-- ===================== HOME ===================== -->
+    <section id="home" class="home">
+      <div style="display:flex;align-items:center;gap:9px;padding-top:6px">
+        <img class="home-logo" src="logo_ftblur.png" alt="FT Blur">
+      </div>
+      <div class="home-mid">
+        <div class="hint-badge">
+          <svg width="92" height="92" viewBox="0 0 120 120" fill="none">
+            <rect x="44" y="14" width="15" height="62" rx="7.5" fill="#0066cc" transform="rotate(-13 51.5 45)"></rect>
+            <rect x="62" y="14" width="15" height="62" rx="7.5" fill="#0066cc" transform="rotate(13 69.5 45)"></rect>
+            <rect x="40" y="60" width="42" height="46" rx="18" fill="#0066cc"></rect>
+          </svg>
+        </div>
+        <div style="text-align:center;display:flex;flex-direction:column;gap:14px">
+          <h1>Trend Blur Effect</h1>
+          <p class="lead">Lindungi privasimu — rekam &amp; blur otomatis dalam sekali sentuh.</p>
+          <p class="sub">Arahkan kamera ke wajah, angkat 2 jari, dan area itu langsung diburamkan — semuanya diproses di perangkatmu.</p>
+        </div>
+        <button class="btn-primary" id="startBtn">Mulai Rekam</button>
+      </div>
+      <div class="home-foot">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px">
+          <span style="font-size:12px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#86868b">Open Source</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:18px">
+          <a href="https://github.com" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;text-decoration:none;color:#1d1d1f;font-size:14px;font-weight:500">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+            GitHub
+          </a>
+          <span style="width:1px;height:14px;background:#e0e0e0"></span>
+          <span style="font-size:14px;font-weight:400;color:#86868b">Lisensi MIT</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== RECORDER ===================== -->
+    <section id="recorder" class="recorder hidden">
+      <video id="cam" playsinline muted autoplay></video>
+      <canvas id="canvas"></canvas>
+      <div id="camPlaceholder" class="cam-placeholder">Mengaktifkan kamera…<br>Izinkan akses kamera saat diminta.</div>
+
+      <div class="overlay">
+        <div class="top-zone">
+          <div class="row">
+            <button class="circle-btn" id="backBtn" aria-label="Kembali">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+            </button>
+            <span class="title">Perekam</span>
+            <button class="circle-btn" id="gearBtn" aria-label="Pengaturan">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>
+            </button>
+          </div>
+          <div class="badges">
+            <div class="badge"><span class="dot" id="dotCam"></span><span class="t">Kamera aktif</span></div>
+            <div class="badge"><span class="dot" id="dotGesture"></span><span class="t">Gestur terdeteksi</span></div>
+            <div class="badge"><span class="dot" id="dotAudio"></span><span class="t">Audio aktif</span></div>
+          </div>
+          <div class="rec-pill hidden" id="recPill"><span class="rd"></span><span class="tx">REC</span></div>
+        </div>
+
+        <div class="bottom-zone">
+          <div class="controls">
+            <button class="flip-btn" id="flipBtn" aria-label="Balik kamera">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>
+            </button>
+            <button class="rec-btn" id="recBtn" aria-label="Rekam"><span class="inner"></span></button>
+            <div class="meta"><span class="dur" id="dur">00:00</span><span class="fac" id="facing">Depan</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- settings popover -->
+      <div class="popover hidden" id="popover">
+        <div class="pop-row">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span class="lbl">Efek Audio</span>
+            <span class="desc">Salpriadi : Foto kita blur</span>
+          </div>
+          <button class="switch on" id="audioSwitch" aria-label="Efek audio"><span class="knob"></span></button>
+        </div>
+        <div class="divider"></div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="blur-head">
+            <label for="blurRange">Intensitas Blur</label>
+            <span class="val" id="blurVal">50%</span>
+          </div>
+          <input type="range" class="ftslider" id="blurRange" min="0" max="100" value="50" style="width:100%;accent-color:#0066cc">
+        </div>
+      </div>
+
+      <!-- onboarding guide -->
+      <div class="guide hidden" id="guide"></div>
+    </section>
+
+    <!-- ===================== PREVIEW MODAL ===================== -->
+    <div class="modal hidden" id="modal">
+      <div class="sheet">
+        <div class="sheet-head">
+          <span class="h">Hasil Rekaman</span>
+          <button class="x-btn" id="closeModal" aria-label="Tutup">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+          </button>
+        </div>
+        <video id="resultVideo" controls playsinline></video>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <a class="dl-btn" id="downloadBtn" download="ftblur.webm">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>
+            Download
+          </a>
+          <button class="re-btn" id="reRecord">Rekam Ulang</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- element refs ----------
+  const $ = (id)=>document.getElementById(id);
+  const home=$('home'), recorder=$('recorder'), modal=$('modal');
+  const cam=$('cam'), canvas=$('canvas'), ctx=canvas.getContext('2d'), camPlaceholder=$('camPlaceholder');
+  const recBtn=$('recBtn'), flipBtn=$('flipBtn'), backBtn=$('backBtn'), gearBtn=$('gearBtn');
+  const popover=$('popover'), audioSwitch=$('audioSwitch'), blurRange=$('blurRange'), blurVal=$('blurVal');
+  const dotCam=$('dotCam'), dotGesture=$('dotGesture'), dotAudio=$('dotAudio');
+  const recPill=$('recPill'), durEl=$('dur'), facingEl=$('facing');
+  const resultVideo=$('resultVideo'), downloadBtn=$('downloadBtn'), closeModal=$('closeModal'), reRecord=$('reRecord');
+  const guide=$('guide'), toast=$('toast');
+
+  // ---------- state ----------
+  const state = {
+    facing:'user',        // 'user' = depan, 'environment' = belakang
+    audioOn:true,
+    blur:50,              // 0-100
+    recording:false,
+    gestureActive:false,
+    stream:null,          // camera MediaStream
+    rafId:null,
+    detecting:false,
+    seconds:0, timer:null,
+    mediaRecorder:null, chunks:[], lastUrl:null, lastMime:'video/webm'
+  };
+
+  // audio graph (created once, lazily) — pakai decoded buffer agar pasti ikut terekam
+  let audioCtx=null, audioDest=null, audioBuffer=null, audioNode=null, audioLoading=null;
+
+  // ---------- helpers ----------
+  function fmt(s){ const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return m+':'+ss; }
+  function blurPx(){ return (state.blur/100)*26; } // 0..26px
+  function showToast(msg, ms){ toast.textContent=msg; toast.style.display='block'; if(ms){ setTimeout(()=>toast.style.display='none', ms); } }
+  function hideToast(){ toast.style.display='none'; }
+
+  // ---------- camera ----------
+  async function startCamera(){
+    stopCameraTracks();
+    try{
+      state.stream = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode: state.facing, width:{ideal:1280}, height:{ideal:720} },
+        audio:false // hanya audio efek, tanpa mikrofon
+      });
+    }catch(err){
+      camPlaceholder.classList.remove('hidden');
+      camPlaceholder.innerHTML = 'Tidak bisa mengakses kamera.<br>Pastikan halaman dibuka via HTTPS dan izin kamera diberikan.';
+      dotCam.classList.remove('on');
+      console.error('getUserMedia error', err);
+      return false;
+    }
+    cam.srcObject = state.stream;
+    await cam.play().catch(()=>{});
+    // set canvas intrinsic size to video
+    const setSize=()=>{
+      if(cam.videoWidth){ canvas.width=cam.videoWidth; canvas.height=cam.videoHeight; }
+    };
+    if(cam.readyState>=1) setSize(); else cam.addEventListener('loadedmetadata', setSize, {once:true});
+    camPlaceholder.classList.add('hidden');
+    dotCam.classList.add('on');
+    return true;
+  }
+  function stopCameraTracks(){
+    if(state.stream){ state.stream.getTracks().forEach(t=>t.stop()); state.stream=null; }
+  }
+
+  // ---------- render loop (draw + blur) ----------
+  function drawFrame(){
+    if(!cam.videoWidth) return;
+    const w=canvas.width, h=canvas.height;
+    ctx.save();
+    if(state.facing==='user'){ ctx.translate(w,0); ctx.scale(-1,1); } // mirror selfie
+    ctx.filter = state.gestureActive ? ('blur('+blurPx()+'px)') : 'none';
+    ctx.drawImage(cam,0,0,w,h);
+    ctx.restore();
+    ctx.filter='none';
+  }
+  function loop(){
+    drawFrame();
+    // feed MediaPipe (throttled by busy lock)
+    if(hands && cam.videoWidth && !state.detecting){
+      state.detecting=true;
+      hands.send({image:cam}).catch(()=>{}).finally(()=>{ state.detecting=false; });
+    }
+    state.rafId=requestAnimationFrame(loop);
+  }
+
+  // ---------- MediaPipe Hands ----------
+  let hands=null, handsReady=false;
+  // hysteresis: kurangi false-trigger & kedip — gestur harus stabil beberapa frame
+  let gOn=0, gOff=0; const G_ON_FRAMES=3, G_OFF_FRAMES=6;
+  function initHands(){
+    if(typeof Hands==='undefined'){
+      console.warn('MediaPipe Hands tidak termuat (perlu internet).');
+      showToast('Deteksi gestur tidak tersedia (butuh koneksi internet). Kamera & rekam tetap berfungsi.', 4500);
+      return;
+    }
+    hands = new Hands({ locateFile:(f)=>'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f });
+    // modelComplexity:1 lebih akurat dari 0; threshold lebih longgar tapi distabilkan hysteresis
+    hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
+    hands.onResults(onHandsResults);
+    handsReady=true;
+  }
+  function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+  // jari "terbuka" bila ujung (tip) lebih jauh dari pergelangan (0) daripada sendi pip — tahan rotasi
+  function fingerOpen(lm, tip, pip){ return dist(lm[tip], lm[0]) > dist(lm[pip], lm[0]) * 1.05; }
+  function isPeace(lm){
+    const index=fingerOpen(lm,8,6), middle=fingerOpen(lm,12,10);
+    const ring=fingerOpen(lm,16,14), pinky=fingerOpen(lm,20,18);
+    return index && middle && !ring && !pinky; // 2 jari (telunjuk + tengah), sisanya menutup
+  }
+  function onHandsResults(res){
+    let detected=false;
+    if(res.multiHandLandmarks && res.multiHandLandmarks.length){
+      detected = isPeace(res.multiHandLandmarks[0]);
+    }
+    if(detected){ gOn++; gOff=0; } else { gOff++; gOn=0; }
+    if(gOn>=G_ON_FRAMES) state.gestureActive=true;
+    else if(gOff>=G_OFF_FRAMES) state.gestureActive=false;
+    dotGesture.classList.toggle('on', state.gestureActive);
+  }
+
+  // ---------- audio graph ----------
+  function ensureAudioCtx(){
+    if(audioCtx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    audioCtx = new AC();
+    audioDest = audioCtx.createMediaStreamDestination();
+  }
+  function loadAudioBuffer(){
+    if(audioBuffer) return Promise.resolve(audioBuffer);
+    if(audioLoading) return audioLoading;
+    ensureAudioCtx();
+    if(!audioCtx) return Promise.resolve(null);
+    audioLoading = fetch('bck_sound_blur.mp3')
+      .then(r=>r.arrayBuffer())
+      .then(buf=>audioCtx.decodeAudioData(buf))
+      .then(b=>{ audioBuffer=b; return b; })
+      .catch(e=>{ console.error('Gagal memuat audio efek', e); return null; });
+    return audioLoading;
+  }
+  function startEffectAudio(){
+    if(!audioCtx || !audioBuffer) return;
+    stopEffectAudio();
+    audioNode = audioCtx.createBufferSource();
+    audioNode.buffer = audioBuffer;
+    audioNode.loop = true;
+    audioNode.connect(audioDest);            // -> ke rekaman
+    audioNode.connect(audioCtx.destination); // -> ke speaker
+    audioNode.start();
+  }
+  function stopEffectAudio(){
+    if(audioNode){ try{ audioNode.stop(); }catch(e){} try{ audioNode.disconnect(); }catch(e){} audioNode=null; }
+  }
+
+  // ---------- recording ----------
+  function pickMime(){
+    // utamakan MP4 (H.264/AAC) bila browser mendukung; jika tidak, jatuh ke WebM
+    const types=['video/mp4;codecs=avc1.640029,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+    for(const t of types){ if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; }
+    return '';
+  }
+  async function startRecording(){
+    if(!state.stream){ showToast('Kamera belum aktif.', 2500); return; }
+    // build combined stream: canvas video (+ audio effect)
+    const canvasStream = canvas.captureStream(30);
+    const tracks = canvasStream.getVideoTracks();
+    if(state.audioOn){
+      ensureAudioCtx();
+      if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch(e){} }
+      const ab = await loadAudioBuffer();
+      if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio. (Pastikan dibuka via http/https, bukan file://)', 4500); }
+      if(audioDest){ audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); }
+      startEffectAudio();
+    }
+    const recStream = new MediaStream(tracks);
+    const mime = pickMime();
+    try{
+      state.mediaRecorder = mime ? new MediaRecorder(recStream,{mimeType:mime}) : new MediaRecorder(recStream);
+    }catch(e){
+      showToast('Perekaman tidak didukung di browser ini.', 3500); console.error(e); return;
+    }
+    state.lastMime = state.mediaRecorder.mimeType || mime || 'video/webm';
+    state.chunks=[];
+    state.mediaRecorder.ondataavailable=(e)=>{ if(e.data && e.data.size) state.chunks.push(e.data); };
+    state.mediaRecorder.onstop=onRecordingStop;
+    state.mediaRecorder.start();
+
+    state.recording=true; state.seconds=0;
+    recBtn.classList.add('is-rec'); recPill.classList.remove('hidden');
+    durEl.textContent='00:00';
+    state.timer=setInterval(()=>{ state.seconds++; durEl.textContent=fmt(state.seconds); }, 1000);
+  }
+  function stopRecording(){
+    if(state.mediaRecorder && state.mediaRecorder.state!=='inactive'){ state.mediaRecorder.stop(); }
+    clearInterval(state.timer);
+    stopEffectAudio();
+    state.recording=false;
+    recBtn.classList.remove('is-rec'); recPill.classList.add('hidden');
+  }
+  function onRecordingStop(){
+    const blob = new Blob(state.chunks, {type: state.lastMime});
+    if(state.lastUrl) URL.revokeObjectURL(state.lastUrl);
+    state.lastUrl = URL.createObjectURL(blob);
+    resultVideo.src = state.lastUrl;
+    const ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+    const stamp = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+    downloadBtn.href = state.lastUrl;
+    downloadBtn.download = 'ftblur_'+stamp+'.'+ext;
+    modal.classList.remove('hidden');
+  }
+
+  // ---------- onboarding guide ----------
+  const guideSteps=[
+    { title:'Tombol Pengaturan', desc:'Ketuk ikon roda gigi di pojok kanan atas untuk membuka pengaturan audio & blur.' },
+    { title:'Atur Audio & Blur', desc:'Nyalakan atau matikan Efek Audio, lalu geser Intensitas Blur sesuai keinginanmu.' },
+    { title:'Mulai Merekam', desc:'Tekan tombol bulat ini untuk merekam. Angkat 2 jari di depan kamera agar otomatis diburamkan.' }
+  ];
+  let guideStep=0;
+  function renderGuide(){
+    const i=guideStep, step=guideSteps[i];
+    const dots = guideSteps.map((_,k)=>'<span class="d'+(k===i?' act':'')+'"></span>').join('');
+    let spot='', cardPos='';
+    if(i===0){ spot='top:13px;right:13px;width:44px;height:44px'; cardPos='top:76px;right:14px;width:240px'; }
+    else if(i===1){ spot='top:56px;right:11px;width:262px;height:176px;border-radius:20px'; cardPos='top:248px;left:14px;right:14px;margin:0 auto;max-width:300px'; }
+    else { spot='bottom:22px;left:50%;transform:translateX(-50%);width:96px;height:96px'; cardPos='bottom:150px;left:14px;right:14px;margin:0 auto;max-width:300px'; }
+    const nextLabel = i>=guideSteps.length-1 ? 'Mulai' : 'Lanjut';
+    guide.innerHTML =
+      '<div class="spot" style="'+spot+'"></div>'+
+      '<div class="gcard" style="'+cardPos+'">'+
+        '<div class="gdots">'+dots+'<span class="cnt">'+(i+1)+' / '+guideSteps.length+'</span></div>'+
+        '<h3>'+step.title+'</h3><p>'+step.desc+'</p>'+
+        '<div class="gbtns"><button class="gskip" id="gSkip">Lewati</button><button class="gnext" id="gNext">'+nextLabel+'</button></div>'+
+      '</div>';
+    $('gSkip').onclick=endGuide;
+    $('gNext').onclick=()=>{ guideStep++; if(guideStep>=guideSteps.length){ endGuide(); return; } if(guideStep===1){ popover.classList.remove('hidden'); } renderGuide(); };
+  }
+  function startGuide(){ guideStep=0; guide.classList.remove('hidden'); renderGuide(); }
+  function endGuide(){ guide.classList.add('hidden'); popover.classList.add('hidden'); }
+
+  // ---------- screen navigation ----------
+  async function goRecorder(){
+    home.classList.add('hidden'); recorder.classList.remove('hidden');
+    if(!hands) initHands();
+    if(state.audioOn){ ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); } loadAudioBuffer(); } // pra-muat audio (tombol = gesture)
+    const ok = await startCamera();
+    if(state.rafId) cancelAnimationFrame(state.rafId);
+    loop();
+    startGuide();
+    if(ok) setTimeout(hideToast, 100);
+  }
+  function goHome(){
+    if(state.recording) stopRecording();
+    if(state.rafId){ cancelAnimationFrame(state.rafId); state.rafId=null; }
+    stopCameraTracks();
+    stopEffectAudio();
+    recorder.classList.add('hidden'); modal.classList.add('hidden'); home.classList.remove('hidden');
+    dotCam.classList.remove('on'); dotGesture.classList.remove('on');
+  }
+
+  // ---------- audio toggle UI ----------
+  function setAudioOn(on){
+    state.audioOn=on;
+    audioSwitch.classList.toggle('on', on);
+    dotAudio.classList.toggle('on', on);
+    if(!on){ stopEffectAudio(); }
+    else if(state.recording){ loadAudioBuffer().then(()=>startEffectAudio()); }
+  }
+
+  // ---------- events ----------
+  $('startBtn').onclick=goRecorder;
+  backBtn.onclick=goHome;
+  gearBtn.onclick=()=>popover.classList.toggle('hidden');
+  recBtn.onclick=()=>{ if(state.recording) stopRecording(); else startRecording(); };
+  flipBtn.onclick=async ()=>{
+    state.facing = state.facing==='user' ? 'environment' : 'user';
+    facingEl.textContent = state.facing==='user' ? 'Depan' : 'Belakang';
+    await startCamera();
+  };
+  audioSwitch.onclick=()=>setAudioOn(!state.audioOn);
+  blurRange.oninput=(e)=>{ state.blur=Number(e.target.value); blurVal.textContent=state.blur+'%'; };
+  closeModal.onclick=()=>modal.classList.add('hidden');
+  reRecord.onclick=()=>{ modal.classList.add('hidden'); state.seconds=0; durEl.textContent='00:00'; };
+
+  // init defaults
+  setAudioOn(true);
+  facingEl.textContent='Depan';
+})();
+</script>
+</body>
+</html>

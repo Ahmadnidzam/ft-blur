@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#e8e8ec;-webkit-font-smoothing:antialiased}
+  @keyframes ftblink{0%,49%{opacity:1}50%,100%{opacity:.15}}
+  @keyframes ftpulse{0%{box-shadow:0 0 0 0 rgba(255,59,48,.45)}100%{box-shadow:0 0 0 16px rgba(255,59,48,0)}}
+  input[type=range].ftslider{-webkit-appearance:none;appearance:none;height:4px;border-radius:9999px;background:#e0e0e5;outline:none}
+  input[type=range].ftslider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.08);box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer}
+  input[type=range].ftslider::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.08);box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;align-items:stretch;justify-content:center;font-family:Inter,system-ui,-apple-system,sans-serif;color:#1d1d1f">
+  <div style="position:relative;width:100%;max-width:460px;background:#ffffff;min-height:100vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 60px rgba(0,0,0,.08)">
+
+    <!-- ========================= HOME / LANDING ========================= -->
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+    <div data-screen-label="Home" style="flex:1;display:flex;flex-direction:column;padding:28px 28px 0">
+
+      <div style="display:flex;align-items:center;gap:9px;padding-top:6px">
+        <img src="logo_ftblur.png" alt="FT Blur" style="height:30px;width:auto;object-fit:contain">
+      </div>
+
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:26px;padding:32px 0">
+
+        <div style="align-self:center;width:148px;height:148px;border-radius:34px;background:#f5f5f7;display:flex;align-items:center;justify-content:center">
+          <!-- gesture hint: peace / 2-finger sign -->
+          <svg width="92" height="92" viewBox="0 0 120 120" fill="none">
+            <rect x="44" y="14" width="15" height="62" rx="7.5" fill="#0066cc" transform="rotate(-13 51.5 45)"></rect>
+            <rect x="62" y="14" width="15" height="62" rx="7.5" fill="#0066cc" transform="rotate(13 69.5 45)"></rect>
+            <rect x="40" y="60" width="42" height="46" rx="18" fill="#0066cc"></rect>
+          </svg>
+        </div>
+
+        <div style="text-align:center;display:flex;flex-direction:column;gap:14px">
+          <h1 style="margin:0;font-size:42px;line-height:1.05;font-weight:600;letter-spacing:-1.2px">Trand Blur Effect</h1>
+          <p style="margin:0;font-size:19px;line-height:1.35;font-weight:400;color:#1d1d1f;letter-spacing:-.3px">Lindungi privasimu — rekam & blur otomatis dalam sekali sentuh.</p>
+          <p style="margin:4px 8px 0;font-size:15px;line-height:1.5;font-weight:400;color:#6e6e73;letter-spacing:-.2px">Arahkan kamera ke wajah, angkat 2 jari, dan area itu langsung diburamkan — semuanya diproses di perangkatmu.</p>
+        </div>
+
+        <button onClick="{{ goRecorder }}" style="appearance:none;border:none;cursor:pointer;width:100%;height:56px;border-radius:9999px;background:#0066cc;color:#fff;font-family:inherit;font-size:18px;font-weight:600;letter-spacing:-.3px">Mulai Rekam</button>
+      </div>
+
+      <!-- footer -->
+      <div style="border-top:1px solid #f0f0f0;padding:18px 0 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px">
+          <span style="font-size:12px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#86868b">Open Source</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:18px">
+          <a href="#" style="display:flex;align-items:center;gap:7px;text-decoration:none;color:#1d1d1f;font-size:14px;font-weight:500">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+            GitHub
+          </a>
+          <span style="width:1px;height:14px;background:#e0e0e0"></span>
+          <span style="font-size:14px;font-weight:400;color:#86868b">Lisensi MIT</span>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ========================= RECORDER ========================= -->
+    <sc-if value="{{ isRecorder }}" hint-placeholder-val="{{ true }}">
+    <div data-screen-label="Recorder" style="flex:1;position:relative;display:flex;flex-direction:column;background:#000;overflow:hidden">
+
+      <!-- backsound audio (bck_sound_blur.mp3) — plays while recording with Efek Audio on -->
+      <audio id="ft-backsound" src="bck_sound_blur.mp3" loop preload="auto"></audio>
+
+      <!-- video-preview (camera stream) — fills the whole screen, behind everything -->
+      <div data-marker="video-preview" style="position:absolute;inset:0;z-index:0;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(135deg,#16161a 0 14px,#1c1c20 14px 28px)">
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#5a5a62;letter-spacing:.4px">&lt;video&gt; · video-preview</span>
+      </div>
+
+      <!-- canvas-output (blur overlay, stacked above the video) -->
+      <div data-marker="canvas-output" style="position:absolute;inset:0;z-index:1;border:1.5px dashed rgba(255,255,255,.16);display:flex;align-items:flex-end;justify-content:center;padding-bottom:140px;pointer-events:none">
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:rgba(255,255,255,.32);letter-spacing:.4px;background:rgba(0,0,0,.3);padding:4px 9px;border-radius:6px">&lt;canvas&gt; · canvas-output</span>
+      </div>
+
+      <!-- UI overlay layer (floats over the full-bleed preview) -->
+      <div style="position:relative;z-index:3;flex:1;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none">
+
+        <!-- top zone: bar + status badges with scrim -->
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px 16px 30px;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))">
+          <div style="display:flex;align-items:center;justify-content:space-between;pointer-events:auto">
+            <button onClick="{{ goHome }}" style="appearance:none;border:none;cursor:pointer;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.4);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;color:#fff">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+            </button>
+            <span style="font-size:15px;font-weight:600;letter-spacing:-.2px;color:#fff">Perekam</span>
+            <button onClick="{{ toggleSettings }}" style="appearance:none;border:none;cursor:pointer;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.4);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;color:#fff">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>
+            </button>
+          </div>
+
+          <!-- status badges -->
+          <div style="display:flex;flex-wrap:wrap;gap:7px;pointer-events:auto">
+            <div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:6px 11px;border-radius:9999px">
+              <span style="width:7px;height:7px;border-radius:50%;background:{{ camDot }}"></span>
+              <span style="font-size:11.5px;font-weight:500;color:#fff;letter-spacing:-.1px;white-space:nowrap">Kamera aktif</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:6px 11px;border-radius:9999px">
+              <sc-if value="{{ recording }}" hint-placeholder-val="{{ false }}"><span style="width:7px;height:7px;border-radius:50%;background:#34c759"></span></sc-if>
+              <sc-if value="{{ notRecording }}" hint-placeholder-val="{{ true }}"><span style="width:7px;height:7px;border-radius:50%;background:#c7c7cc"></span></sc-if>
+              <span style="font-size:11.5px;font-weight:500;color:#fff;letter-spacing:-.1px;white-space:nowrap">Gestur terdeteksi</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:6px 11px;border-radius:9999px">
+              <sc-if value="{{ audioOn }}" hint-placeholder-val="{{ true }}"><span style="width:7px;height:7px;border-radius:50%;background:#34c759"></span></sc-if>
+              <sc-if value="{{ audioOff }}" hint-placeholder-val="{{ false }}"><span style="width:7px;height:7px;border-radius:50%;background:#c7c7cc"></span></sc-if>
+              <span style="font-size:11.5px;font-weight:500;color:#fff;letter-spacing:-.1px;white-space:nowrap">Audio aktif</span>
+            </div>
+          </div>
+
+          <!-- REC blinking indicator -->
+          <sc-if value="{{ recording }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:7px;background:rgba(0,0,0,.5);backdrop-filter:blur(8px);padding:6px 12px;border-radius:9999px;align-self:flex-start;pointer-events:auto">
+            <span style="width:9px;height:9px;border-radius:50%;background:#ff3b30;animation:ftblink 1s steps(1) infinite"></span>
+            <span style="font-size:12px;font-weight:700;color:#fff;letter-spacing:.6px">REC</span>
+          </div>
+          </sc-if>
+        </div>
+
+        <!-- bottom zone: control panel with scrim -->
+        <div style="padding:44px 24px 26px;background:linear-gradient(0deg,rgba(0,0,0,.62),rgba(0,0,0,0));pointer-events:auto">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <!-- flip camera -->
+            <button onClick="{{ flipCamera }}" style="appearance:none;border:none;cursor:pointer;width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.16);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;color:#fff">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>
+            </button>
+
+            <!-- big record button -->
+            <button data-marker="tombol-rekam" onClick="{{ toggleRecord }}" style="appearance:none;cursor:pointer;width:84px;height:84px;border-radius:50%;background:rgba(255,255,255,.18);border:4px solid rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center;padding:0">
+              <sc-if value="{{ recording }}" hint-placeholder-val="{{ false }}"><span style="display:block;background:#ff3b30;width:30px;height:30px;border-radius:7px"></span></sc-if>
+              <sc-if value="{{ notRecording }}" hint-placeholder-val="{{ true }}"><span style="display:block;background:#0066cc;width:62px;height:62px;border-radius:50%"></span></sc-if>
+            </button>
+
+            <!-- duration -->
+            <div style="width:56px;display:flex;flex-direction:column;align-items:center;gap:2px">
+              <span style="font-family:ui-monospace,Menlo,monospace;font-size:16px;font-weight:600;letter-spacing:.5px;color:#fff">{{ durationLabel }}</span>
+              <span style="font-size:10px;font-weight:500;color:rgba(255,255,255,.7);letter-spacing:.2px">{{ facingLabel }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- settings popover menu -->
+      <sc-if value="{{ settingsOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;top:62px;right:16px;z-index:6;width:252px;background:#fff;border-radius:18px;box-shadow:0 12px 36px rgba(0,0,0,.32);padding:16px;display:flex;flex-direction:column;gap:14px">
+        <div data-marker="toggle-audio" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:14px;font-weight:600;letter-spacing:-.2px">Efek Audio</span>
+            <span style="font-size:11.5px;font-weight:400;color:#86868b">Salpriadi : Foto kita blur</span>
+          </div>
+          <sc-if value="{{ audioOn }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ toggleAudio }}" style="appearance:none;border:none;cursor:pointer;flex:none;width:46px;height:28px;border-radius:9999px;padding:3px;background:#0066cc;display:flex;justify-content:flex-end">
+            <span style="width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></span>
+          </button>
+          </sc-if>
+          <sc-if value="{{ audioOff }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ toggleAudio }}" style="appearance:none;border:none;cursor:pointer;flex:none;width:46px;height:28px;border-radius:9999px;padding:3px;background:#e0e0e5;display:flex;justify-content:flex-start">
+            <span style="width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></span>
+          </button>
+          </sc-if>
+        </div>
+        <div style="height:1px;background:#f0f0f0"></div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <label style="font-size:14px;font-weight:600;color:#1d1d1f;letter-spacing:-.1px">Intensitas Blur</label>
+            <span style="font-family:ui-monospace,Menlo,monospace;font-size:13px;font-weight:600;color:#0066cc">{{ blurLabel }}</span>
+          </div>
+          <input type="range" class="ftslider" min="0" max="100" value="{{ blur }}" onInput="{{ setBlur }}" style="width:100%;accent-color:#0066cc">
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- onboarding coachmark guide (spotlight per step) -->
+      <sc-if value="{{ showGuide }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;z-index:20;pointer-events:auto">
+
+        <!-- STEP 1 — highlight the settings gear -->
+        <sc-if value="{{ guideIcon1 }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;top:13px;right:13px;width:44px;height:44px;border-radius:50%;box-shadow:0 0 0 9999px rgba(12,12,15,.74);border:2px solid #fff"></div>
+        <div style="position:absolute;top:76px;right:14px;width:240px;max-width:calc(100% - 28px);background:#fff;border-radius:18px;padding:15px 16px 14px;display:flex;flex-direction:column;gap:9px;box-shadow:0 12px 36px rgba(0,0,0,.3)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="width:16px;height:6px;border-radius:9999px;background:#0066cc"></span><span style="width:6px;height:6px;border-radius:50%;background:#d2d2d7"></span><span style="width:6px;height:6px;border-radius:50%;background:#d2d2d7"></span>
+            <span style="margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:600;letter-spacing:.5px;color:#86868b;white-space:nowrap">1 / 3</span>
+          </div>
+          <h3 style="margin:0;font-size:16px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f">Tombol Pengaturan</h3>
+          <p style="margin:0;font-size:13px;line-height:1.45;font-weight:400;color:#6e6e73">Ketuk ikon roda gigi ini untuk membuka menu pengaturan audio &amp; blur.</p>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+            <button onClick="{{ skipGuide }}" style="flex:none;appearance:none;border:none;cursor:pointer;background:transparent;color:#86868b;font-family:inherit;font-size:13px;font-weight:600;padding:10px 4px">Lewati</button>
+            <button onClick="{{ nextGuide }}" style="flex:1;appearance:none;border:none;cursor:pointer;height:40px;border-radius:9999px;background:#0066cc;color:#fff;font-family:inherit;font-size:14px;font-weight:600;letter-spacing:-.2px">Lanjut</button>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- STEP 2 — highlight the audio + blur settings (popover is opened) -->
+        <sc-if value="{{ guideIcon2 }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:56px;right:11px;width:262px;max-width:calc(100% - 22px);height:176px;border-radius:20px;box-shadow:0 0 0 9999px rgba(12,12,15,.74);border:2px solid #fff"></div>
+        <div style="position:absolute;top:248px;left:14px;right:14px;margin:0 auto;max-width:300px;background:#fff;border-radius:18px;padding:15px 16px 14px;display:flex;flex-direction:column;gap:9px;box-shadow:0 12px 36px rgba(0,0,0,.3)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="width:6px;height:6px;border-radius:50%;background:#d2d2d7"></span><span style="width:16px;height:6px;border-radius:9999px;background:#0066cc"></span><span style="width:6px;height:6px;border-radius:50%;background:#d2d2d7"></span>
+            <span style="margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:600;letter-spacing:.5px;color:#86868b;white-space:nowrap">2 / 3</span>
+          </div>
+          <h3 style="margin:0;font-size:16px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f">Atur Audio &amp; Blur</h3>
+          <p style="margin:0;font-size:13px;line-height:1.45;font-weight:400;color:#6e6e73">Nyalakan atau matikan Efek Audio, lalu geser Intensitas Blur sesuai keinginanmu.</p>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+            <button onClick="{{ skipGuide }}" style="flex:none;appearance:none;border:none;cursor:pointer;background:transparent;color:#86868b;font-family:inherit;font-size:13px;font-weight:600;padding:10px 4px">Lewati</button>
+            <button onClick="{{ nextGuide }}" style="flex:1;appearance:none;border:none;cursor:pointer;height:40px;border-radius:9999px;background:#0066cc;color:#fff;font-family:inherit;font-size:14px;font-weight:600;letter-spacing:-.2px">Lanjut</button>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- STEP 3 — highlight the record button -->
+        <sc-if value="{{ guideIcon3 }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;bottom:22px;left:50%;transform:translateX(-50%);width:96px;height:96px;border-radius:50%;box-shadow:0 0 0 9999px rgba(12,12,15,.74);border:2px solid #fff"></div>
+        <div style="position:absolute;bottom:150px;left:14px;right:14px;margin:0 auto;max-width:300px;background:#fff;border-radius:18px;padding:15px 16px 14px;display:flex;flex-direction:column;gap:9px;box-shadow:0 12px 36px rgba(0,0,0,.3)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="width:6px;height:6px;border-radius:50%;background:#d2d2d7"></span><span style="width:6px;height:6px;border-radius:50%;background:#d2d2d7"></span><span style="width:16px;height:6px;border-radius:9999px;background:#0066cc"></span>
+            <span style="margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:600;letter-spacing:.5px;color:#86868b;white-space:nowrap">3 / 3</span>
+          </div>
+          <h3 style="margin:0;font-size:16px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f">Mulai Merekam</h3>
+          <p style="margin:0;font-size:13px;line-height:1.45;font-weight:400;color:#6e6e73">Tekan tombol ini untuk merekam. Angkat 2 jari di depan kamera agar otomatis diburamkan.</p>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+            <button onClick="{{ skipGuide }}" style="flex:none;appearance:none;border:none;cursor:pointer;background:transparent;color:#86868b;font-family:inherit;font-size:13px;font-weight:600;padding:10px 4px">Lewati</button>
+            <button onClick="{{ nextGuide }}" style="flex:1;appearance:none;border:none;cursor:pointer;height:40px;border-radius:9999px;background:#0066cc;color:#fff;font-family:inherit;font-size:14px;font-weight:600;letter-spacing:-.2px">Mulai</button>
+          </div>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+    </div>
+    </sc-if>
+
+    <!-- ========================= PREVIEW & DOWNLOAD MODAL ========================= -->
+    <sc-if value="{{ showPreview }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Preview Modal" style="position:absolute;inset:0;z-index:30;background:rgba(20,20,22,.55);backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center">
+      <div style="width:100%;background:#fff;border-radius:26px 26px 0 0;padding:14px 20px 26px;display:flex;flex-direction:column;gap:18px;animation:ftblink 0s">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:18px;font-weight:600;letter-spacing:-.3px;white-space:nowrap">Hasil Rekaman</span>
+          <button onClick="{{ closePreview }}" style="appearance:none;border:none;cursor:pointer;width:34px;height:34px;border-radius:50%;background:#f5f5f7;display:flex;align-items:center;justify-content:center;color:#1d1d1f">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+          </button>
+        </div>
+
+        <!-- result video player -->
+        <div style="position:relative;width:100%;aspect-ratio:3/4;border-radius:18px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center">
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg,#16161a 0 14px,#1c1c20 14px 28px)"></div>
+          <div style="position:relative;width:58px;height:58px;border-radius:50%;background:rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#1d1d1f"><path d="M8 5v14l11-7z"></path></svg>
+          </div>
+          <span style="position:absolute;bottom:12px;left:12px;font-family:ui-monospace,Menlo,monospace;font-size:11px;color:rgba(255,255,255,.45);background:rgba(0,0,0,.35);padding:4px 9px;border-radius:6px">&lt;video&gt; · hasil-blur</span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button style="appearance:none;border:none;cursor:pointer;width:100%;height:54px;border-radius:9999px;background:#0066cc;color:#fff;font-family:inherit;font-size:17px;font-weight:600;letter-spacing:-.2px;display:flex;align-items:center;justify-content:center;gap:9px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>
+            Download
+          </button>
+          <button onClick="{{ reRecord }}" style="appearance:none;cursor:pointer;width:100%;height:54px;border-radius:9999px;background:transparent;color:#0066cc;border:1px solid #0066cc;font-family:inherit;font-size:17px;font-weight:600;letter-spacing:-.2px">Rekam Ulang</button>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:460,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { screen:'home', recording:false, seconds:0, audioOn:true, preset:'Lo-fi', blur:50, facing:'depan', showPreview:false, settingsOpen:false, showGuide:false, guideStep:0 };
+  timer = null;
+
+  guideSteps = [
+    { title:'Buka Pengaturan', desc:'Ketuk ikon roda gigi di pojok kanan atas preview untuk membuka menu pengaturan.' },
+    { title:'Atur Audio & Blur', desc:'Nyalakan atau matikan Efek Audio, lalu geser Intensitas Blur sesuai keinginanmu sebelum merekam.' },
+    { title:'Mulai Merekam', desc:'Tekan tombol bulat di tengah untuk merekam. Angkat 2 jari di depan kamera agar area itu otomatis diburamkan.' },
+  ];
+
+  fmt(s){ const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return m+':'+ss; }
+
+  syncAudio = (playing) => {
+    const a = document.getElementById('ft-backsound');
+    if(!a) return;
+    if(playing && this.state.audioOn){ a.currentTime = 0; a.play().catch(()=>{}); }
+    else { a.pause(); }
+  };
+
+  toggleRecord = () => {
+    if(this.state.recording){
+      clearInterval(this.timer);
+      this.syncAudio(false);
+      this.setState({ recording:false, showPreview:true });
+    } else {
+      this.setState({ recording:true, seconds:0, showPreview:false });
+      this.timer = setInterval(()=>this.setState(s=>({ seconds:s.seconds+1 })), 1000);
+      this.syncAudio(true);
+    }
+  };
+
+  componentWillUnmount(){ clearInterval(this.timer); }
+
+  renderVals(){
+    const s = this.state;
+    const green = '#34c759', gray = '#c7c7cc';
+    return {
+      isHome: s.screen==='home',
+      isRecorder: s.screen==='recorder',
+      goRecorder: ()=>this.setState({ screen:'recorder', showGuide:true, guideStep:0, settingsOpen:false }),
+      goHome: ()=>{ clearInterval(this.timer); this.syncAudio(false); this.setState({ screen:'home', recording:false, showPreview:false }); },
+      recording: s.recording,
+      notRecording: !s.recording,
+      audioOff: !s.audioOn,
+      toggleRecord: this.toggleRecord,
+      durationLabel: this.fmt(s.seconds),
+      recBtnBg: s.recording ? '#ff3b30' : '#0066cc',
+      recInner: s.recording ? 'border-radius:6px;width:28px;height:28px' : 'border-radius:50%;width:62px;height:62px',
+      audioOn: s.audioOn,
+      toggleAudio: ()=>this.setState(st=>{ const on=!st.audioOn; const a=document.getElementById('ft-backsound'); if(a){ if(on && st.recording){ a.play().catch(()=>{}); } else { a.pause(); } } return { audioOn:on }; }),
+      audioKnob: s.audioOn ? 'transform:translateX(20px)' : 'transform:translateX(0)',
+      audioTrack: s.audioOn ? '#0066cc' : '#e0e0e5',
+      presetDisabled: !s.audioOn,
+      presetOpacity: s.audioOn ? '1' : '0.45',
+      preset: s.preset,
+      setPreset: (e)=>this.setState({ preset:e.target.value }),
+      blur: s.blur,
+      setBlur: (e)=>this.setState({ blur:Number(e.target.value) }),
+      blurLabel: s.blur+'%',
+      facing: s.facing,
+      facingLabel: s.facing==='depan' ? 'Depan' : 'Belakang',
+      flipCamera: ()=>this.setState(st=>({ facing: st.facing==='depan' ? 'belakang' : 'depan' })),
+      camDot: green,
+      gesDot: s.recording ? green : gray,
+      audDot: s.audioOn ? green : gray,
+      settingsOpen: s.settingsOpen,
+      toggleSettings: ()=>this.setState(st=>({ settingsOpen:!st.settingsOpen })),
+      showGuide: s.showGuide,
+      guideTitle: this.guideSteps[s.guideStep].title,
+      guideDesc: this.guideSteps[s.guideStep].desc,
+      guideCounter: (s.guideStep+1)+' / '+this.guideSteps.length,
+      guideNextLabel: s.guideStep >= this.guideSteps.length-1 ? 'Mulai' : 'Lanjut',
+      guideIcon1: s.guideStep===0,
+      guideIcon2: s.guideStep===1,
+      guideIcon3: s.guideStep===2,
+      guideOff0: s.guideStep!==0,
+      guideOff1: s.guideStep!==1,
+      guideOff2: s.guideStep!==2,
+      nextGuide: ()=>this.setState(st=>{ const next = st.guideStep+1; if(next > this.guideSteps.length-1) return { showGuide:false, settingsOpen:false }; return { guideStep:next, settingsOpen: next===1 }; }),
+      skipGuide: ()=>this.setState({ showGuide:false, settingsOpen:false }),
+      showPreview: s.showPreview,
+      closePreview: ()=>this.setState({ showPreview:false }),
+      reRecord: ()=>{ this.setState({ showPreview:false, seconds:0 }); this.toggleRecord(); },
+    };
+  }
+}
+</script>
+</body>
+</html>
