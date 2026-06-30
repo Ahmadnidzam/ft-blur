@@ -334,12 +334,17 @@
     handsReady=true;
   }
   function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
-  // jari "terbuka" bila ujung (tip) lebih jauh dari pergelangan (0) daripada sendi pip — tahan rotasi
-  function fingerOpen(lm, tip, pip){ return dist(lm[tip], lm[0]) > dist(lm[pip], lm[0]) * 1.05; }
+  // pangkal (MCP) tiap jari, dipakai sbg acuan lokal -> tahan rotasi tangan
+  const FINGER_MCP = {8:5, 12:9, 16:13, 20:17};
+  // jari "terbuka" bila ujung (tip) jauh dari pangkalnya; saat menutup tip melipat
+  // mendekati pangkal sehingga rasionya jatuh di bawah ambang. lokal -> akurat di segala sudut.
+  function fingerExtend(lm, tip, pip){ return dist(lm[tip], lm[FINGER_MCP[tip]]) / dist(lm[pip], lm[FINGER_MCP[tip]]); }
   function isPeace(lm){
-    const index=fingerOpen(lm,8,6), middle=fingerOpen(lm,12,10);
-    const ring=fingerOpen(lm,16,14), pinky=fingerOpen(lm,20,18);
-    return index && middle && !ring && !pinky; // 2 jari (telunjuk + tengah), sisanya menutup
+    const index = fingerExtend(lm,8,6)  > 1.6;   // telunjuk jelas terbuka
+    const middle= fingerExtend(lm,12,10) > 1.6;   // tengah jelas terbuka
+    const ring  = fingerExtend(lm,16,14) < 1.25;  // manis menutup
+    const pinky = fingerExtend(lm,20,18) < 1.25;  // kelingking menutup
+    return index && middle && ring && pinky; // 2 jari (telunjuk + tengah), sisanya menutup
   }
   function onHandsResults(res){
     let detected=false;
