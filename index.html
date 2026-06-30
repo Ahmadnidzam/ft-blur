@@ -544,9 +544,11 @@
     return out; // pengiriman sinkron setelah buffer penuh di-append
   }
   function mp4Desc(MP4Box, trak){
+    // UMD mp4box mengekspor DataStream sebagai global terpisah, bukan MP4Box.DataStream
+    const DS = (typeof DataStream!=='undefined') ? DataStream : MP4Box.DataStream;
     const entry = trak.mdia.minf.stbl.stsd.entries[0];
     const box = entry.avcC || entry.hvcC || entry.esds;
-    const ds = new MP4Box.DataStream(undefined, 0, MP4Box.DataStream.BIG_ENDIAN);
+    const ds = new DS(undefined, 0, DS.BIG_ENDIAN);
     box.write(ds);
     return ds.buffer.slice(8); // buang 8-byte header box (size+type)
   }
