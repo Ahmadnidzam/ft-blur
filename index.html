@@ -437,11 +437,8 @@
   document.addEventListener('click', unlockAudio);
 
   // ---------- recording ----------
-  // Safari iOS tidak andal merekam track audio WebAudio ke MediaRecorder, jadi di iOS
-  // rekam video-only lalu gabungkan audio efek setelah stop (mux via ffmpeg.wasm).
-  const IS_IOS = /iP(hone|ad|od)/.test(navigator.platform)
-    || /iPhone|iPad|iPod/.test(navigator.userAgent)
-    || (navigator.maxTouchPoints>1 && /Mac/.test(navigator.platform)); // iPadOS menyamar sbg Mac
+  // Audio efek direkam langsung lewat WebAudio -> MediaStreamDestination -> MediaRecorder.
+  // Syarat utama: file audio HARUS bisa di-decode (MP3 asli) supaya source berbunyi.
   function pickMime(){
     // utamakan MP4 (H.264/AAC) bila browser mendukung; jika tidak, jatuh ke WebM
     const types=['video/mp4;codecs=avc1.640029,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
@@ -452,18 +449,13 @@
     if(!state.stream){ showToast('Kamera belum aktif.', 2500); return; }
     const canvasStream = canvas.captureStream(30);
     const tracks = canvasStream.getVideoTracks();
-    state.muxAudio = false;
     if(state.audioOn){
       ensureAudioCtx();
       if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch(e){} }
       const ab = await loadAudioBuffer();
       if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
-      startEffectAudio(); // monitor suara via speaker
-      if(IS_IOS){
-        state.muxAudio = true; // iOS: audio digabung dari file mentah setelah stop (tak butuh decode)
-      } else if(audioDest){
-        audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); // desktop: rekam langsung
-      }
+      startEffectAudio(); // bunyikan ke speaker + ke track rekaman
+      if(ab && audioDest){ audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); }
     }
     const recStream = new MediaStream(tracks);
     const mime = pickMime();
@@ -490,19 +482,9 @@
     state.recording=false;
     recBtn.classList.remove('is-rec'); recPill.classList.add('hidden');
   }
-  async function onRecordingStop(){
-    let blob = new Blob(state.chunks, {type: state.lastMime});
-    let ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
-    if(state.muxAudio){
-      try{
-        showToast(ffmpegInstance ? 'Menggabungkan audio…' : 'Menyiapkan audio (mengunduh ~30MB sekali saja)…');
-        blob = await muxAudioIntoVideo(blob); ext='mp4';
-        hideToast();
-      }catch(e){
-        console.error('Mux audio gagal', e);
-        showToast('Audio gagal digabung: '+((e&&e.message)||e)+' — video tersimpan tanpa audio.', 7000);
-      }
-    }
+  function onRecordingStop(){
+    const blob = new Blob(state.chunks, {type: state.lastMime});
+    const ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
     if(state.lastUrl) URL.revokeObjectURL(state.lastUrl);
     state.lastUrl = URL.createObjectURL(blob);
     resultVideo.src = state.lastUrl;
@@ -510,43 +492,6 @@
     downloadBtn.href = state.lastUrl;
     downloadBtn.download = 'ftblur_'+stamp+'.'+ext;
     modal.classList.remove('hidden');
-  }
-
-  // ---------- ffmpeg.wasm (lazy, single-thread; tanpa SharedArrayBuffer agar jalan di GitHub Pages) ----------
-  const FF_VER='0.12.15', FF_UTIL_VER='0.12.2', FF_CORE_VER='0.12.10';
-  let ffmpegInstance=null, ffmpegLoading=null;
-  async function getFFmpeg(){
-    if(ffmpegInstance) return ffmpegInstance;
-    if(ffmpegLoading) return ffmpegLoading;
-    ffmpegLoading = (async()=>{
-      const ffMod = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@'+FF_VER+'/dist/esm';
-      const { FFmpeg } = await import(ffMod+'/index.js');
-      const { toBlobURL } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@'+FF_UTIL_VER+'/dist/esm/index.js');
-      const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@'+FF_CORE_VER+'/dist/umd';
-      const ff = new FFmpeg();
-      ff.on('log', ({message})=>console.log('[ffmpeg]', message));
-      ff.on('progress', ({progress})=>{ if(state.muxAudio) showToast('Menggabungkan audio… '+Math.min(100,Math.round((progress||0)*100))+'%'); });
-      await ff.load({
-        // worker dimuat dari URL CDN (modul, cross-origin diizinkan via CORS) -> relative import-nya tetap resolve
-        classWorkerURL: ffMod+'/worker.js',
-        coreURL: await toBlobURL(core+'/ffmpeg-core.js','text/javascript'),
-        wasmURL: await toBlobURL(core+'/ffmpeg-core.wasm','application/wasm'),
-      });
-      ffmpegInstance = ff; return ff;
-    })();
-    try{ return await ffmpegLoading; }
-    finally{ ffmpegLoading = ffmpegInstance ? ffmpegLoading : null; }
-  }
-  async function muxAudioIntoVideo(videoBlob){
-    const ff = await getFFmpeg();
-    await ff.writeFile('in.mp4', new Uint8Array(await videoBlob.arrayBuffer()));
-    await ff.writeFile('snd', new Uint8Array(await fetch('bck_sound_blur.mp3').then(r=>r.arrayBuffer())));
-    // ulang audio agar menutup durasi video, potong di durasi terpendek (video)
-    await ff.exec(['-i','in.mp4','-stream_loop','-1','-i','snd',
-      '-map','0:v:0','-map','1:a:0','-c:v','copy','-c:a','aac','-b:a','128k',
-      '-shortest','-movflags','+faststart','out.mp4']);
-    const out = await ff.readFile('out.mp4');
-    return new Blob([out.buffer], {type:'video/mp4'});
   }
 
   // ---------- onboarding guide ----------
@@ -582,7 +527,6 @@
     home.classList.add('hidden'); recorder.classList.remove('hidden');
     lastVideoTime=-1;
     if(!handLandmarker) initHands();
-    if(IS_IOS && state.audioOn) getFFmpeg().catch(()=>{}); // pra-muat untuk mux audio
     if(state.audioOn){ ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); } loadAudioBuffer(); } // pra-muat audio (tombol = gesture)
     const ok = await startCamera();
     if(state.rafId) cancelAnimationFrame(state.rafId);

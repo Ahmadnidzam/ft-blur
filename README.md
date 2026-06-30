@@ -30,7 +30,7 @@ Lalu buka `http://localhost:8000` (atau alamat yang ditampilkan `serve`).
 - Kamera diambil via `getUserMedia`, frame digambar ke `<canvas>`.
 - [MediaPipe Tasks Vision `HandLandmarker`](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) mendeteksi 21 titik tangan; blur aktif saat **2–3 jari terbuka** (4 jari atau lebih tidak blur).
 - Blur dirender via downscale→upscale di `<canvas>` (konsisten di semua browser, termasuk Safari iOS; `ctx.filter` blur tidak dipakai karena tak stabil di Safari).
-- Audio efek: di desktop direkam langsung lewat WebAudio→`MediaRecorder`; di **iOS** (WebKit tak andal merekam track WebAudio) video direkam tanpa audio lalu digabung setelah stop pakai [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) (single-thread, tanpa SharedArrayBuffer).
+- Audio efek direkam langsung lewat WebAudio (`MediaStreamAudioDestinationNode`) → `MediaRecorder`. File audio berupa MP3 asli agar `decodeAudioData` berhasil di semua browser termasuk Safari iOS (file AAC ber-ekstensi `.mp3` gagal di-decode iOS).
 - Saat gestur terdeteksi, `<canvas>` diberi filter blur.
 - Audio efek diputar via Web Audio API dan track-nya digabung ke output rekaman.
 - `MediaRecorder` merekam canvas + audio, hasilnya bisa langsung diunduh.
