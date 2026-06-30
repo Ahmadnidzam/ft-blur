@@ -163,7 +163,7 @@
           </div>
           <div class="badges">
             <div class="badge"><span class="dot" id="dotCam"></span><span class="t">Kamera aktif</span></div>
-            <div class="badge"><span class="dot" id="dotGesture"></span><span class="t">Gestur terdeteksi</span></div>
+            <div class="badge"><span class="dot" id="dotGesture"></span><span class="t" id="gestureTxt">Gestur terdeteksi</span></div>
             <div class="badge"><span class="dot" id="dotAudio"></span><span class="t">Audio aktif</span></div>
           </div>
           <div class="rec-pill hidden" id="recPill"><span class="rd"></span><span class="tx">REC</span></div>
@@ -237,7 +237,7 @@
   const cam=$('cam'), canvas=$('canvas'), ctx=canvas.getContext('2d'), camPlaceholder=$('camPlaceholder');
   const recBtn=$('recBtn'), flipBtn=$('flipBtn'), backBtn=$('backBtn'), gearBtn=$('gearBtn');
   const popover=$('popover'), audioSwitch=$('audioSwitch'), blurRange=$('blurRange'), blurVal=$('blurVal');
-  const dotCam=$('dotCam'), dotGesture=$('dotGesture'), dotAudio=$('dotAudio');
+  const dotCam=$('dotCam'), dotGesture=$('dotGesture'), dotAudio=$('dotAudio'), gestureTxt=$('gestureTxt');
   const recPill=$('recPill'), durEl=$('dur'), facingEl=$('facing');
   const resultVideo=$('resultVideo'), downloadBtn=$('downloadBtn'), closeModal=$('closeModal'), reRecord=$('reRecord');
   const guide=$('guide'), toast=$('toast');
@@ -328,7 +328,9 @@
     // feed MediaPipe Tasks (sinkron) — hanya saat ada frame video baru
     if(handLandmarker && cam.videoWidth && cam.currentTime!==lastVideoTime){
       lastVideoTime = cam.currentTime;
-      try{ onHandsResults(handLandmarker.detectForVideo(cam, performance.now())); }
+      // timestamp wajib naik monoton; pakai performance.now() yang dijamin bertambah
+      const ts = Math.max(performance.now(), lastDetectTs+1); lastDetectTs=ts;
+      try{ onHandsResults(handLandmarker.detectForVideo(cam, ts)); }
       catch(e){ /* abaikan frame gagal */ }
     }
     state.rafId=requestAnimationFrame(loop);
@@ -340,7 +342,7 @@
   // tertangkap daripada pose 2 jari spesifik).
   const TV_VER = '0.10.35';
   const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-  let handLandmarker=null, handsReady=false, lastVideoTime=-1;
+  let handLandmarker=null, handsReady=false, lastVideoTime=-1, lastDetectTs=0;
   // hysteresis: kurangi false-trigger & kedip — gestur harus stabil beberapa frame
   let gOn=0, gOff=0; const G_ON_FRAMES=3, G_OFF_FRAMES=6;
   const MIN_FINGERS=2; // trigger bila jari terbuka > 1
@@ -350,11 +352,14 @@
       const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER);
       const { HandLandmarker, FilesetResolver } = vision;
       const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER+'/wasm');
-      handLandmarker = await HandLandmarker.createFromOptions(fileset, {
-        baseOptions:{ modelAssetPath:HAND_MODEL, delegate:'GPU' },
+      const build = (delegate)=> HandLandmarker.createFromOptions(fileset, {
+        baseOptions:{ modelAssetPath:HAND_MODEL, delegate },
         runningMode:'VIDEO',
         numHands:1
       });
+      // delegate GPU sering gagal di Safari iOS -> jatuh ke CPU agar tetap jalan
+      try{ handLandmarker = await build('GPU'); }
+      catch(gpuErr){ console.warn('GPU delegate gagal, pakai CPU', gpuErr); handLandmarker = await build('CPU'); }
       handsReady=true;
     }catch(e){
       console.warn('MediaPipe Tasks Vision gagal dimuat (perlu internet).', e);
@@ -375,14 +380,16 @@
     return n;
   }
   function onHandsResults(res){
-    let detected=false;
+    let detected=false, fingers=0, hand=false;
     if(res && res.landmarks && res.landmarks.length){
-      detected = countFingers(res.landmarks[0]) >= MIN_FINGERS;
+      hand=true; fingers=countFingers(res.landmarks[0]); detected = fingers>=MIN_FINGERS;
     }
     if(detected){ gOn++; gOff=0; } else { gOff++; gOn=0; }
     if(gOn>=G_ON_FRAMES) state.gestureActive=true;
     else if(gOff>=G_OFF_FRAMES) state.gestureActive=false;
     dotGesture.classList.toggle('on', state.gestureActive);
+    // umpan balik: tampilkan jumlah jari agar mudah cek kalibrasi di HP
+    if(gestureTxt) gestureTxt.textContent = hand ? ('Jari: '+fingers+(state.gestureActive?' • blur ON':'')) : 'Gestur terdeteksi';
   }
 
   // ---------- audio graph ----------
@@ -440,16 +447,17 @@
     if(!state.stream){ showToast('Kamera belum aktif.', 2500); return; }
     // build combined stream: canvas video (+ audio effect)
     const canvasStream = canvas.captureStream(30);
-    const tracks = canvasStream.getVideoTracks();
     if(state.audioOn){
       ensureAudioCtx();
       if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch(e){} }
       const ab = await loadAudioBuffer();
       if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio. (Pastikan dibuka via http/https, bukan file://)', 4500); }
-      if(audioDest){ audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); }
+      // mulai sumber audio LEBIH DULU agar track destination sudah "live" saat ditambahkan,
+      // lalu addTrack ke canvasStream yg sama (Safari iOS lebih andal merekam cara ini)
       startEffectAudio();
+      if(audioDest){ audioDest.stream.getAudioTracks().forEach(t=>canvasStream.addTrack(t)); }
     }
-    const recStream = new MediaStream(tracks);
+    const recStream = canvasStream;
     const mime = pickMime();
     try{
       state.mediaRecorder = mime ? new MediaRecorder(recStream,{mimeType:mime}) : new MediaRecorder(recStream);
