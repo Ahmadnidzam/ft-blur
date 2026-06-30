@@ -125,7 +125,7 @@
         <div style="text-align:center;display:flex;flex-direction:column;gap:14px">
           <h1>Trend Blur Effect</h1>
           <p class="lead">Lindungi privasimu — rekam &amp; blur otomatis dalam sekali sentuh.</p>
-          <p class="sub">Arahkan kamera ke wajah, angkat tangan (lebih dari 1 jari), dan area itu langsung diburamkan — semuanya diproses di perangkatmu.</p>
+          <p class="sub">Arahkan kamera ke wajah, angkat 2–3 jari, dan area itu langsung diburamkan — semuanya diproses di perangkatmu.</p>
         </div>
         <button class="btn-primary" id="startBtn">Mulai Rekam</button>
       </div>
@@ -295,33 +295,27 @@
   }
 
   // ---------- render loop (draw + blur) ----------
-  // Safari iOS < 17 tak mendukung CanvasRenderingContext2D.filter -> deteksi dukungan
-  const CANVAS_FILTER_OK = (()=>{ try{ const c=document.createElement('canvas').getContext('2d'); c.filter='blur(2px)'; return c.filter==='blur(2px)'; }catch(e){ return false; } })();
-  let blurCanvas=null, blurCtx=null; // offscreen utk fallback blur
+  // Blur selalu via downscale->upscale (smoothing). CanvasRenderingContext2D.filter
+  // 'blur()' tidak konsisten di Safari (iOS), jadi tidak dipakai sama sekali.
+  let blurCanvas=null, blurCtx=null; // offscreen utk blur
   function drawFrame(){
     if(!cam.videoWidth) return;
     const w=canvas.width, h=canvas.height;
     const mirror = state.facing==='user';
-    if(state.gestureActive && !CANVAS_FILTER_OK){
-      // Fallback iOS: blur via downscale lalu upscale dengan smoothing (gaya box-blur).
-      const scale = Math.max(2, blurPx()/1.5); // makin tinggi intensitas, makin kecil sampel
-      const sw = Math.max(1, Math.round(w/scale)), sh = Math.max(1, Math.round(h/scale));
-      if(!blurCanvas){ blurCanvas=document.createElement('canvas'); blurCtx=blurCanvas.getContext('2d'); }
-      blurCanvas.width=sw; blurCanvas.height=sh;
-      blurCtx.drawImage(cam,0,0,sw,sh);
-      ctx.save();
-      if(mirror){ ctx.translate(w,0); ctx.scale(-1,1); }
-      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-      ctx.drawImage(blurCanvas,0,0,sw,sh,0,0,w,h);
-      ctx.restore();
-      return;
-    }
     ctx.save();
     if(mirror){ ctx.translate(w,0); ctx.scale(-1,1); } // mirror selfie
-    ctx.filter = state.gestureActive ? ('blur('+blurPx()+'px)') : 'none';
-    ctx.drawImage(cam,0,0,w,h);
+    if(state.gestureActive){
+      const scale = Math.max(2, blurPx()/1.2); // makin tinggi intensitas, makin kecil sampel
+      const sw = Math.max(1, Math.round(w/scale)), sh = Math.max(1, Math.round(h/scale));
+      if(!blurCanvas){ blurCanvas=document.createElement('canvas'); blurCtx=blurCanvas.getContext('2d'); }
+      if(blurCanvas.width!==sw || blurCanvas.height!==sh){ blurCanvas.width=sw; blurCanvas.height=sh; }
+      blurCtx.drawImage(cam,0,0,sw,sh);
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+      ctx.drawImage(blurCanvas,0,0,sw,sh,0,0,w,h);
+    } else {
+      ctx.drawImage(cam,0,0,w,h);
+    }
     ctx.restore();
-    ctx.filter='none';
   }
   function loop(){
     drawFrame();
@@ -345,7 +339,7 @@
   let handLandmarker=null, handsReady=false, lastVideoTime=-1, lastDetectTs=0;
   // hysteresis: kurangi false-trigger & kedip — gestur harus stabil beberapa frame
   let gOn=0, gOff=0; const G_ON_FRAMES=3, G_OFF_FRAMES=6;
-  const MIN_FINGERS=2; // trigger bila jari terbuka > 1
+  const MIN_FINGERS=2, MAX_FINGERS=3; // trigger bila jari terbuka 2-3 (4+ tidak blur)
   async function initHands(){
     if(handLandmarker || handsReady) return;
     try{
@@ -382,7 +376,7 @@
   function onHandsResults(res){
     let detected=false, fingers=0, hand=false;
     if(res && res.landmarks && res.landmarks.length){
-      hand=true; fingers=countFingers(res.landmarks[0]); detected = fingers>=MIN_FINGERS;
+      hand=true; fingers=countFingers(res.landmarks[0]); detected = fingers>=MIN_FINGERS && fingers<=MAX_FINGERS;
     }
     if(detected){ gOn++; gOff=0; } else { gOff++; gOn=0; }
     if(gOn>=G_ON_FRAMES) state.gestureActive=true;
@@ -437,6 +431,11 @@
   document.addEventListener('click', unlockAudio);
 
   // ---------- recording ----------
+  // Safari iOS tidak andal merekam track audio WebAudio ke MediaRecorder, jadi di iOS
+  // rekam video-only lalu gabungkan audio efek setelah stop (mux via ffmpeg.wasm).
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.platform)
+    || /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.maxTouchPoints>1 && /Mac/.test(navigator.platform)); // iPadOS menyamar sbg Mac
   function pickMime(){
     // utamakan MP4 (H.264/AAC) bila browser mendukung; jika tidak, jatuh ke WebM
     const types=['video/mp4;codecs=avc1.640029,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
@@ -445,19 +444,22 @@
   }
   async function startRecording(){
     if(!state.stream){ showToast('Kamera belum aktif.', 2500); return; }
-    // build combined stream: canvas video (+ audio effect)
     const canvasStream = canvas.captureStream(30);
+    const tracks = canvasStream.getVideoTracks();
+    state.muxAudio = false;
     if(state.audioOn){
       ensureAudioCtx();
       if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch(e){} }
       const ab = await loadAudioBuffer();
-      if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio. (Pastikan dibuka via http/https, bukan file://)', 4500); }
-      // mulai sumber audio LEBIH DULU agar track destination sudah "live" saat ditambahkan,
-      // lalu addTrack ke canvasStream yg sama (Safari iOS lebih andal merekam cara ini)
-      startEffectAudio();
-      if(audioDest){ audioDest.stream.getAudioTracks().forEach(t=>canvasStream.addTrack(t)); }
+      if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
+      startEffectAudio(); // monitor suara via speaker
+      if(IS_IOS){
+        state.muxAudio = !!ab; // iOS: audio digabung setelah stop
+      } else if(audioDest){
+        audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); // desktop: rekam langsung
+      }
     }
-    const recStream = canvasStream;
+    const recStream = new MediaStream(tracks);
     const mime = pickMime();
     try{
       state.mediaRecorder = mime ? new MediaRecorder(recStream,{mimeType:mime}) : new MediaRecorder(recStream);
@@ -482,23 +484,60 @@
     state.recording=false;
     recBtn.classList.remove('is-rec'); recPill.classList.add('hidden');
   }
-  function onRecordingStop(){
-    const blob = new Blob(state.chunks, {type: state.lastMime});
+  async function onRecordingStop(){
+    let blob = new Blob(state.chunks, {type: state.lastMime});
+    let ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+    if(state.muxAudio){
+      try{
+        showToast('Menggabungkan audio…');
+        blob = await muxAudioIntoVideo(blob); ext='mp4';
+        hideToast();
+      }catch(e){
+        console.error('Mux audio gagal', e);
+        showToast('Audio gagal digabung — video tersimpan tanpa audio.', 4000);
+      }
+    }
     if(state.lastUrl) URL.revokeObjectURL(state.lastUrl);
     state.lastUrl = URL.createObjectURL(blob);
     resultVideo.src = state.lastUrl;
-    const ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
     const stamp = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
     downloadBtn.href = state.lastUrl;
     downloadBtn.download = 'ftblur_'+stamp+'.'+ext;
     modal.classList.remove('hidden');
   }
 
+  // ---------- ffmpeg.wasm (lazy, single-thread; tanpa SharedArrayBuffer agar jalan di GitHub Pages) ----------
+  const FF_VER='0.12.15', FF_UTIL_VER='0.12.2', FF_CORE_VER='0.12.10';
+  let ffmpegInstance=null;
+  async function getFFmpeg(){
+    if(ffmpegInstance) return ffmpegInstance;
+    const { FFmpeg } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@'+FF_VER+'/dist/esm/index.js');
+    const { toBlobURL } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@'+FF_UTIL_VER+'/dist/esm/index.js');
+    const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@'+FF_CORE_VER+'/dist/umd';
+    const ff = new FFmpeg();
+    await ff.load({
+      coreURL: await toBlobURL(core+'/ffmpeg-core.js','text/javascript'),
+      wasmURL: await toBlobURL(core+'/ffmpeg-core.wasm','application/wasm'),
+    });
+    ffmpegInstance = ff; return ff;
+  }
+  async function muxAudioIntoVideo(videoBlob){
+    const ff = await getFFmpeg();
+    await ff.writeFile('in.mp4', new Uint8Array(await videoBlob.arrayBuffer()));
+    await ff.writeFile('snd', new Uint8Array(await fetch('bck_sound_blur.mp3').then(r=>r.arrayBuffer())));
+    // ulang audio agar menutup durasi video, potong di durasi terpendek (video)
+    await ff.exec(['-i','in.mp4','-stream_loop','-1','-i','snd',
+      '-map','0:v:0','-map','1:a:0','-c:v','copy','-c:a','aac','-b:a','128k',
+      '-shortest','-movflags','+faststart','out.mp4']);
+    const out = await ff.readFile('out.mp4');
+    return new Blob([out.buffer], {type:'video/mp4'});
+  }
+
   // ---------- onboarding guide ----------
   const guideSteps=[
     { title:'Tombol Pengaturan', desc:'Ketuk ikon roda gigi di pojok kanan atas untuk membuka pengaturan audio & blur.' },
     { title:'Atur Audio & Blur', desc:'Nyalakan atau matikan Efek Audio, lalu geser Intensitas Blur sesuai keinginanmu.' },
-    { title:'Mulai Merekam', desc:'Tekan tombol bulat ini untuk merekam. Angkat tangan (lebih dari 1 jari) di depan kamera agar otomatis diburamkan.' }
+    { title:'Mulai Merekam', desc:'Tekan tombol bulat ini untuk merekam. Angkat 2–3 jari di depan kamera agar otomatis diburamkan (4 jari atau lebih tidak blur).' }
   ];
   let guideStep=0;
   function renderGuide(){
@@ -527,6 +566,7 @@
     home.classList.add('hidden'); recorder.classList.remove('hidden');
     lastVideoTime=-1;
     if(!handLandmarker) initHands();
+    if(IS_IOS && state.audioOn) getFFmpeg().catch(()=>{}); // pra-muat untuk mux audio
     if(state.audioOn){ ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); } loadAudioBuffer(); } // pra-muat audio (tombol = gesture)
     const ok = await startCamera();
     if(state.rafId) cancelAnimationFrame(state.rafId);
