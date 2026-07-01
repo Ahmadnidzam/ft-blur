@@ -255,6 +255,8 @@
     <div class="toast" id="toast"></div>
   </div>
 </div>
+<!-- monitor audio iOS: <audio> lebih andal drpd WebAudio utk playback saat rekam -->
+<audio id="fx" src="bck_sound_blur.mp3" loop preload="auto" playsinline></audio>
 
 <script>
 (function(){
@@ -272,6 +274,7 @@
   const resultInfo=$('resultInfo'), downloadLabel=$('downloadLabel');
   const loadingOverlay=$('loadingOverlay'), loadTxt=$('loadTxt');
   const countdownSel=$('countdownSel'), countdownOverlay=$('countdownOverlay'), cdNum=$('cdNum');
+  const fx=$('fx'); // elemen audio monitor (dipakai di iOS)
   const guide=$('guide'), toast=$('toast');
 
   // ---------- state ----------
@@ -496,16 +499,18 @@
     const tracks = canvasStream.getVideoTracks();
     state.muxAudio = false;
     if(state.audioOn){
-      ensureAudioCtx();
-      if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch(e){} }
-      const ab = await loadAudioBuffer();
-      if(!ab && !IS_IOS){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
-      startEffectAudio(); // bunyikan ke speaker (monitor)
       if(IS_IOS){
-        state.muxAudio = true; // gabung audio setelah stop — tak tergantung track recorder
-        preloadMux(); // pra-muat mp4box + mp4-muxer
-      } else if(ab && audioDest){
-        audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); // desktop: rekam langsung
+        state.muxAudio = true; // audio digabung dari file setelah stop
+        preloadMux();
+        // monitor via <audio> element (sudah di-unlock saat tap tombol rekam)
+        try{ fx.currentTime=0; fx.muted=false; fx.volume=1; await fx.play(); }catch(e){}
+      } else {
+        ensureAudioCtx();
+        if(audioCtx && audioCtx.state==='suspended'){ try{ await audioCtx.resume(); }catch(e){} }
+        const ab = await loadAudioBuffer();
+        if(!ab){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
+        startEffectAudio(); // desktop: WebAudio -> speaker + track rekaman
+        if(ab && audioDest){ audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); }
       }
     }
     const recStream = new MediaStream(tracks);
@@ -529,7 +534,7 @@
   function stopRecording(){
     if(state.mediaRecorder && state.mediaRecorder.state!=='inactive'){ state.mediaRecorder.stop(); }
     clearInterval(state.timer);
-    stopEffectAudio();
+    stopEffectAudio(); try{ fx.pause(); }catch(e){}
     state.recording=false;
     recBtn.classList.remove('is-rec'); recPill.classList.add('hidden');
   }
@@ -727,9 +732,9 @@
     showLoading('Menyiapkan deteksi & audio…');
     const jobs=[ initHands() ];
     if(state.audioOn){
-      ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); }
-      jobs.push(loadAudioBuffer().then(()=>startContinuousAudio())); // sumber kontinu -> rekam pertama bunyi
-      if(IS_IOS) jobs.push(loadMP4Box(), loadMp4Muxer());
+      if(IS_IOS){ jobs.push(loadMP4Box(), loadMp4Muxer()); }
+      else { ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); }
+        jobs.push(loadAudioBuffer().then(()=>startContinuousAudio())); } // desktop: sumber kontinu
     }
     await Promise.allSettled(jobs);
     hideLoading(); setReady(true);
@@ -764,7 +769,7 @@
     if(state.recording) stopRecording();
     if(state.rafId){ cancelAnimationFrame(state.rafId); state.rafId=null; }
     stopCameraTracks();
-    stopEffectAudio(); stopContinuousAudio();
+    stopEffectAudio(); stopContinuousAudio(); try{ fx.pause(); }catch(e){}
     recorder.classList.add('hidden'); modal.classList.add('hidden'); home.classList.remove('hidden');
     dotCam.classList.remove('on'); dotGesture.classList.remove('on');
   }
@@ -774,8 +779,8 @@
     state.audioOn=on;
     audioSwitch.classList.toggle('on', on);
     dotAudio.classList.toggle('on', on);
-    if(!on){ stopEffectAudio(); }
-    else if(state.recording){ loadAudioBuffer().then(()=>startEffectAudio()); }
+    if(!on){ stopEffectAudio(); try{ fx.pause(); }catch(e){} }
+    else if(state.recording && !IS_IOS){ loadAudioBuffer().then(()=>startEffectAudio()); }
   }
 
   // ---------- events ----------
@@ -786,6 +791,8 @@
     if(state.recording){ stopRecording(); return; }
     if(state.countingDown){ endCountdown(false); return; } // tap saat hitung mundur = batal
     if(!state.ready){ showToast('Masih menyiapkan… tunggu sebentar.', 1500); return; }
+    // iOS: unlock <audio> DI DALAM gesture tap (play muted) — biar bisa unmute setelah countdown
+    if(IS_IOS && state.audioOn){ try{ fx.muted=true; fx.play().catch(()=>{}); }catch(e){} }
     const go = await runCountdown(state.countdown|0);
     if(go && !state.recording) startRecording();
   };
