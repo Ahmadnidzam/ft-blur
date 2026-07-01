@@ -213,10 +213,11 @@
           </button>
         </div>
         <video id="resultVideo" controls playsinline></video>
+        <div id="resultInfo" style="font-size:12px;color:#86868b;text-align:center;min-height:16px"></div>
         <div style="display:flex;flex-direction:column;gap:10px">
-          <a class="dl-btn" id="downloadBtn" download="ftblur.webm">
+          <a class="dl-btn" id="downloadBtn" download="ftblur.mp4">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>
-            Download
+            <span id="downloadLabel">Download</span>
           </a>
           <button class="re-btn" id="reRecord">Rekam Ulang</button>
         </div>
@@ -240,6 +241,7 @@
   const dotCam=$('dotCam'), dotGesture=$('dotGesture'), dotAudio=$('dotAudio'), gestureTxt=$('gestureTxt');
   const recPill=$('recPill'), durEl=$('dur'), facingEl=$('facing');
   const resultVideo=$('resultVideo'), downloadBtn=$('downloadBtn'), closeModal=$('closeModal'), reRecord=$('reRecord');
+  const resultInfo=$('resultInfo'), downloadLabel=$('downloadLabel');
   const guide=$('guide'), toast=$('toast');
 
   // ---------- state ----------
@@ -495,23 +497,43 @@
   async function onRecordingStop(){
     let blob = new Blob(state.chunks, {type: state.lastMime});
     let ext = state.lastMime.indexOf('mp4')>=0 ? 'mp4' : 'webm';
-    if(state.muxAudio && ext==='mp4'){
+    if(state.muxAudio){
       try{
         showToast('Menggabungkan audio…');
         blob = await muxAudioIntoVideo(blob); ext='mp4';
         hideToast();
       }catch(e){
         console.error('Mux audio gagal', e);
-        showToast('Audio gagal digabung: '+((e&&e.message)||e)+' — video tersimpan tanpa audio.', 6000);
+        showToast('Audio gagal digabung: '+((e&&e.message)||e), 8000);
       }
     }
+    // diagnostik: pastikan file akhir benar-benar punya track audio
+    let audioOK=false;
+    try{ audioOK = await hasAudioTrack(blob); }catch(e){}
     if(state.lastUrl) URL.revokeObjectURL(state.lastUrl);
     state.lastUrl = URL.createObjectURL(blob);
     resultVideo.src = state.lastUrl;
     const stamp = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+    const fname = 'ftblur_'+stamp+'.'+ext;
+    state.lastBlob = blob; state.lastName = fname;
     downloadBtn.href = state.lastUrl;
-    downloadBtn.download = 'ftblur_'+stamp+'.'+ext;
+    downloadBtn.download = fname;
+    const sizeKB = Math.round(blob.size/1024);
+    resultInfo.textContent = (state.audioOn ? (audioOK ? '🔊 audio tergabung' : '🔇 tanpa track audio') : 'audio nonaktif') + ' • ' + sizeKB + ' KB • .' + ext;
+    // iOS: <a download> tak andal simpan-dgn-audio; pakai share sheet (Save to Photos/Files)
+    downloadLabel.textContent = (IS_IOS && navigator.canShare) ? 'Simpan / Bagikan' : 'Download';
     modal.classList.remove('hidden');
+  }
+  // cek apakah blob mp4 punya audioTrack (via mp4box)
+  async function hasAudioTrack(blob){
+    if(blob.type.indexOf('mp4')<0) return false;
+    const MP4Box = await loadMP4Box();
+    const ab = await blob.arrayBuffer();
+    const info = await new Promise((res,rej)=>{
+      const f=MP4Box.createFile(); f.onError=e=>rej(e); f.onReady=i=>res(i);
+      ab.fileStart=0; f.appendBuffer(ab); f.flush();
+    });
+    return !!(info.audioTracks && info.audioTracks.length);
   }
 
   // ---------- mux audio (untuk iOS) ----------
@@ -675,6 +697,16 @@
   blurRange.oninput=(e)=>{ state.blur=Number(e.target.value); blurVal.textContent=state.blur+'%'; };
   closeModal.onclick=()=>modal.classList.add('hidden');
   reRecord.onclick=()=>{ modal.classList.add('hidden'); state.seconds=0; durEl.textContent='00:00'; };
+  // iOS: simpan via share sheet (file utuh dgn audio -> Save to Photos/Files); lain: biarkan <a download>
+  downloadBtn.addEventListener('click', async (e)=>{
+    if(!(IS_IOS && state.lastBlob)) return; // desktop: default download
+    const file = new File([state.lastBlob], state.lastName||'ftblur.mp4', {type:'video/mp4'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      e.preventDefault();
+      try{ await navigator.share({files:[file], title:'FT Blur'}); }
+      catch(err){ if(err && err.name!=='AbortError') showToast('Gagal membuka menu simpan: '+(err.message||err), 4000); }
+    }
+  });
 
   // init defaults
   setAudioOn(true);
