@@ -461,8 +461,8 @@
       if(!ab && !IS_IOS){ showToast('Audio efek gagal dimuat — rekaman lanjut tanpa audio.', 4000); }
       startEffectAudio(); // bunyikan ke speaker (monitor)
       if(IS_IOS){
-        state.muxAudio = true; // gabung audio setelah stop (mp4box) — tak tergantung track recorder
-        if(!window.MP4Box) loadMP4Box().catch(()=>{}); // pra-muat
+        state.muxAudio = true; // gabung audio setelah stop — tak tergantung track recorder
+        preloadMux(); // pra-muat mp4box + mp4-muxer
       } else if(ab && audioDest){
         audioDest.stream.getAudioTracks().forEach(t=>tracks.push(t)); // desktop: rekam langsung
       }
@@ -514,20 +514,30 @@
     modal.classList.remove('hidden');
   }
 
-  // ---------- mux audio (mp4box.js) — gabung AAC m4a ke MP4 hasil rekam (untuk iOS) ----------
-  let mp4boxLoading=null;
+  // ---------- mux audio (untuk iOS) ----------
+  // Demux dgn mp4box.js, remux jadi MP4 PROGRESIF (ftyp/moov/mdat, non-fragmented) pakai
+  // mp4-muxer. mp4box sendiri menghasilkan fragmented MP4 (moof) yg audionya diabaikan
+  // iOS Photos saat disimpan — makanya wajib flat.
+  const MP4BOX_VER='0.5.2', MP4MUXER_VER='5.2.2';
+  let mp4boxLoading=null, mp4muxerMod=null;
   function loadMP4Box(){
     if(window.MP4Box) return Promise.resolve(window.MP4Box);
     if(mp4boxLoading) return mp4boxLoading;
     mp4boxLoading = new Promise((resolve,reject)=>{
       const s=document.createElement('script');
-      s.src='https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js';
+      s.src='https://cdn.jsdelivr.net/npm/mp4box@'+MP4BOX_VER+'/dist/mp4box.all.min.js';
       s.onload=()=>resolve(window.MP4Box);
       s.onerror=()=>reject(new Error('gagal memuat mp4box'));
       document.head.appendChild(s);
     });
     return mp4boxLoading;
   }
+  async function loadMp4Muxer(){
+    if(mp4muxerMod) return mp4muxerMod;
+    mp4muxerMod = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@'+MP4MUXER_VER+'/build/mp4-muxer.mjs');
+    return mp4muxerMod;
+  }
+  function preloadMux(){ loadMP4Box().catch(()=>{}); loadMp4Muxer().catch(()=>{}); }
   function mp4Parse(MP4Box, ab){
     return new Promise((resolve,reject)=>{
       const file = MP4Box.createFile();
@@ -543,49 +553,54 @@
     file.start(); file.flush();
     return out; // pengiriman sinkron setelah buffer penuh di-append
   }
-  function mp4Desc(MP4Box, trak){
-    // UMD mp4box mengekspor DataStream sebagai global terpisah, bukan MP4Box.DataStream
-    const DS = (typeof DataStream!=='undefined') ? DataStream : MP4Box.DataStream;
-    const entry = trak.mdia.minf.stbl.stsd.entries[0];
-    const box = entry.avcC || entry.hvcC || entry.esds;
+  function avcConfig(MP4Box, trak){
+    // ambil AVCDecoderConfigurationRecord (avcC tanpa 8-byte header box)
+    const DS = (typeof DataStream!=='undefined') ? DataStream : MP4Box.DataStream; // UMD: DataStream global
+    const box = trak.mdia.minf.stbl.stsd.entries[0].avcC;
     const ds = new DS(undefined, 0, DS.BIG_ENDIAN);
     box.write(ds);
-    return ds.buffer.slice(8); // buang 8-byte header box (size+type)
+    return new Uint8Array(ds.buffer.slice(8));
   }
   async function muxAudioIntoVideo(videoBlob){
     const MP4Box = await loadMP4Box();
+    const { Muxer, ArrayBufferTarget } = await loadMp4Muxer();
     const videoAB = await videoBlob.arrayBuffer();
     const audioAB = await fetch('bck_sound_blur.m4a').then(r=>r.arrayBuffer());
     const v = await mp4Parse(MP4Box, videoAB);
     const a = await mp4Parse(MP4Box, audioAB);
-    const vTrak = v.info.videoTracks[0], aTrak = a.info.audioTracks[0];
-    if(!vTrak || !aTrak) throw new Error('track tidak ditemukan');
-    const vBox = v.file.getTrackById(vTrak.id), aBox = a.file.getTrackById(aTrak.id);
-    const vSamples = mp4Samples(v.file, vTrak.id);
-    const aSamples = mp4Samples(a.file, aTrak.id);
+    const vT = v.info.videoTracks[0], aT = a.info.audioTracks[0];
+    if(!vT || !aT) throw new Error('track tidak ditemukan');
+    const vS = mp4Samples(v.file, vT.id);
+    const aS = mp4Samples(a.file, aT.id);
+    const vEntry = v.file.getTrackById(vT.id).mdia.minf.stbl.stsd.entries[0];
+    const avcc = avcConfig(MP4Box, v.file.getTrackById(vT.id));
 
-    const out = MP4Box.createFile();
-    const vEntry = vBox.mdia.minf.stbl.stsd.entries[0];
-    const vId = out.addTrack({ timescale:vTrak.timescale, width:vEntry.width, height:vEntry.height,
-      avcDecoderConfigRecord: mp4Desc(MP4Box, vBox) });
-    const aEntry = aBox.mdia.minf.stbl.stsd.entries[0];
-    const aId = out.addTrack({ timescale:aTrak.timescale, type:'mp4a', hdlr:'soun', name:'SoundHandler',
-      samplerate:aEntry.samplerate, channel_count:aEntry.channel_count, samplesize:aEntry.samplesize||16,
-      description: aEntry.esds });
-
-    for(const s of vSamples){ out.addSample(vId, s.data, {duration:s.duration, dts:s.dts, cts:s.cts, is_sync:s.is_sync}); }
-    // ulang audio menutup durasi video
-    const vDur = vTrak.duration / vTrak.timescale;
-    let idx=0, dtsOffset=0; const aDurTs=aTrak.duration;
-    while(true){
-      const s = aSamples[idx];
-      if((dtsOffset+s.dts)/aTrak.timescale >= vDur) break;
-      out.addSample(aId, s.data, {duration:s.duration, dts:dtsOffset+s.dts, cts:dtsOffset+s.cts, is_sync:s.is_sync});
-      idx++;
-      if(idx>=aSamples.length){ idx=0; dtsOffset+=aDurTs; }
-      if(dtsOffset/aTrak.timescale > vDur + 30) break; // pengaman
+    const muxer = new Muxer({
+      target: new ArrayBufferTarget(),
+      video: { codec:'avc', width:vEntry.width, height:vEntry.height },
+      audio: { codec:'aac', sampleRate: aT.audio.sample_rate, numberOfChannels: aT.audio.channel_count },
+      fastStart: 'in-memory',
+      firstTimestampBehavior: 'offset',
+    });
+    const vMeta = { decoderConfig:{ codec:'avc1', description: avcc } };
+    for(const s of vS){
+      const ts=Math.round(s.cts/vT.timescale*1e6), dur=Math.round(s.duration/vT.timescale*1e6), cto=Math.round((s.cts-s.dts)/vT.timescale*1e6);
+      muxer.addVideoChunkRaw(s.data, s.is_sync?'key':'delta', ts, dur, vMeta, cto);
     }
-    return new Blob([out.getBuffer()], {type:'video/mp4'});
+    // ASC AAC-LC 44.1kHz stereo = 0x12 0x10 (aset audio tetap)
+    const aMeta = { decoderConfig:{ codec:'mp4a.40.2', description: new Uint8Array([0x12,0x10]) } };
+    const vDurUs = vT.duration/vT.timescale*1e6;
+    let idx=0, off=0; const aDurTs=aT.duration;
+    while(true){
+      const s=aS[idx]; const ts=Math.round((off+s.dts)/aT.timescale*1e6);
+      if(ts>=vDurUs) break;
+      muxer.addAudioChunkRaw(s.data,'key',ts,Math.round(s.duration/aT.timescale*1e6),aMeta);
+      idx++;
+      if(idx>=aS.length){ idx=0; off+=aDurTs; }
+      if(off/aT.timescale*1e6 > vDurUs+30e6) break; // pengaman
+    }
+    muxer.finalize();
+    return new Blob([muxer.target.buffer], {type:'video/mp4'});
   }
 
   // ---------- onboarding guide ----------
