@@ -509,9 +509,6 @@
         showToast('Audio gagal digabung: '+((e&&e.message)||e), 8000);
       }
     }
-    // diagnostik: pastikan file akhir benar-benar punya track audio
-    let audioOK=false;
-    try{ audioOK = await hasAudioTrack(blob); }catch(e){}
     if(state.lastUrl) URL.revokeObjectURL(state.lastUrl);
     state.lastUrl = URL.createObjectURL(blob);
     resultVideo.src = state.lastUrl;
@@ -521,21 +518,37 @@
     downloadBtn.href = state.lastUrl;
     downloadBtn.download = fname;
     const sizeKB = Math.round(blob.size/1024);
-    resultInfo.textContent = (state.audioOn ? (audioOK ? '🔊 audio tergabung' : '🔇 tanpa track audio') : 'audio nonaktif') + ' • ' + sizeKB + ' KB • .' + ext;
     // iOS: <a download> tak andal simpan-dgn-audio; pakai share sheet (Save to Photos/Files)
     downloadLabel.textContent = (IS_IOS && navigator.canShare) ? 'Simpan / Bagikan' : 'Download';
     modal.classList.remove('hidden');
+    // diagnostik audibilitas: decode audio dari file akhir, ukur amplitudo (bukan sekadar ada track)
+    resultInfo.textContent = 'Cek audio… • '+sizeKB+' KB • .'+ext;
+    audioDiag(blob).then(r=>{
+      const tag = !state.audioOn ? 'audio nonaktif'
+        : r.audible ? '🔊 audio OK'
+        : r.hasTrack ? '🔇 track ada tapi senyap'
+        : '🔇 tanpa audio';
+      resultInfo.textContent = tag + ' • ' + sizeKB + ' KB • .' + ext;
+    }).catch(()=>{ resultInfo.textContent = sizeKB+' KB • .'+ext; });
   }
-  // cek apakah blob mp4 punya audioTrack (via mp4box)
-  async function hasAudioTrack(blob){
-    if(blob.type.indexOf('mp4')<0) return false;
-    const MP4Box = await loadMP4Box();
+  // {hasTrack, audible}: cek track via mp4box + decode WebAudio utk ukur amplitudo
+  async function audioDiag(blob){
+    const res = { hasTrack:false, audible:false };
     const ab = await blob.arrayBuffer();
-    const info = await new Promise((res,rej)=>{
-      const f=MP4Box.createFile(); f.onError=e=>rej(e); f.onReady=i=>res(i);
-      ab.fileStart=0; f.appendBuffer(ab); f.flush();
-    });
-    return !!(info.audioTracks && info.audioTracks.length);
+    try{
+      const MP4Box = await loadMP4Box();
+      const info = await new Promise((ok,no)=>{ const f=MP4Box.createFile(); f.onError=e=>no(e); f.onReady=i=>ok(i); const b=ab.slice(0); b.fileStart=0; f.appendBuffer(b); f.flush(); });
+      res.hasTrack = !!(info.audioTracks && info.audioTracks.length);
+    }catch(e){}
+    try{
+      ensureAudioCtx();
+      const buf = await audioCtx.decodeAudioData(ab.slice(0));
+      const ch = buf.getChannelData(0); let mx=0;
+      for(let i=0;i<ch.length;i+=257){ const v=Math.abs(ch[i]); if(v>mx) mx=v; }
+      res.audible = mx > 0.005;
+      if(res.audible) res.hasTrack = true;
+    }catch(e){}
+    return res;
   }
 
   // ---------- mux audio (untuk iOS) ----------
@@ -611,11 +624,15 @@
       const ts=Math.round(s.cts/vT.timescale*1e6), dur=Math.round(s.duration/vT.timescale*1e6), cto=Math.round((s.cts-s.dts)/vT.timescale*1e6);
       muxer.addVideoChunkRaw(s.data, s.is_sync?'key':'delta', ts, dur, vMeta, cto);
     }
-    // ASC (AudioSpecificConfig) diambil UTUH dari esds sumber — bukan tebakan 2-byte.
-    // ASC terpotong bikin AAC gagal di-decode di browser/iOS (senyap walau track ada).
-    const esds = a.file.getTrackById(aT.id).mdia.minf.stbl.stsd.entries[0].esds;
-    let ascArr=null; (function walk(d){ if(!d) return; if(d.tag===5 && d.data) ascArr=d.data; if(d.descs) d.descs.forEach(walk); })(esds.esd);
-    const aMeta = { decoderConfig:{ codec:'mp4a.40.2', description: new Uint8Array(ascArr||[0x12,0x10]) } };
+    // ASC (AudioSpecificConfig) LENGKAP wajib, kalau terpotong AAC senyap di browser/iOS.
+    // Aset audio tetap (bck_sound_blur.m4a) -> ASC pastinya 12 10 56 e5 00 (sudah diverifikasi).
+    // Tetap coba baca dari esds; kalau parser UMD mp4box beda struktur, pakai ASC yang diketahui.
+    const ASC_KNOWN = [0x12,0x10,0x56,0xe5,0x00];
+    let ascArr=null;
+    try{ const esds=a.file.getTrackById(aT.id).mdia.minf.stbl.stsd.entries[0].esds;
+      (function walk(d){ if(!d) return; if(d.tag===5 && d.data && d.data.length>=2) ascArr=Array.from(d.data); if(d.descs) d.descs.forEach(walk); })(esds.esd); }catch(e){}
+    const asc = (ascArr && ascArr.length>=5) ? ascArr : ASC_KNOWN; // butuh ASC penuh, bukan 2-byte
+    const aMeta = { decoderConfig:{ codec:'mp4a.40.2', description: new Uint8Array(asc) } };
     const vDurUs = vT.duration/vT.timescale*1e6;
     let idx=0, off=0; const aDurTs=aT.duration;
     while(true){
@@ -663,6 +680,7 @@
     home.classList.add('hidden'); recorder.classList.remove('hidden');
     lastVideoTime=-1;
     if(!handLandmarker) initHands();
+    if(state.audioOn){ loadAudioBuffer(); if(IS_IOS) preloadMux(); } // pra-muat audio + mux
     if(state.audioOn){ ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); } loadAudioBuffer(); } // pra-muat audio (tombol = gesture)
     const ok = await startCamera();
     if(state.rafId) cancelAnimationFrame(state.rafId);
