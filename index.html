@@ -42,6 +42,11 @@
   #cam{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
   #canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;background:#000}
   .cam-placeholder{position:absolute;inset:0;z-index:0;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(135deg,#16161a 0 14px,#1c1c20 14px 28px);color:#5a5a62;font-size:13px;text-align:center;padding:24px}
+  .loading-overlay{position:absolute;inset:0;z-index:25;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:rgba(10,10,12,.72);backdrop-filter:blur(6px);color:#fff}
+  .loading-overlay.hidden{display:none}
+  .loading-overlay .spinner{width:44px;height:44px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:#0a84ff;animation:spin .8s linear infinite}
+  .loading-overlay .load-txt{font-size:14px;font-weight:500;letter-spacing:-.1px;opacity:.9;text-align:center;padding:0 24px}
+  @keyframes spin{to{transform:rotate(360deg)}}
   .overlay{position:relative;z-index:3;flex:1;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}
   .top-zone{display:flex;flex-direction:column;gap:12px;padding:calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 30px calc(16px + env(safe-area-inset-left));background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
   .row{display:flex;align-items:center;justify-content:space-between;pointer-events:auto}
@@ -149,6 +154,10 @@
       <video id="cam" playsinline muted autoplay></video>
       <canvas id="canvas"></canvas>
       <div id="camPlaceholder" class="cam-placeholder">Mengaktifkan kamera…<br>Izinkan akses kamera saat diminta.</div>
+      <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <div class="load-txt" id="loadTxt">Menyiapkan…</div>
+      </div>
 
       <div class="overlay">
         <div class="top-zone">
@@ -242,6 +251,7 @@
   const recPill=$('recPill'), durEl=$('dur'), facingEl=$('facing');
   const resultVideo=$('resultVideo'), downloadBtn=$('downloadBtn'), closeModal=$('closeModal'), reRecord=$('reRecord');
   const resultInfo=$('resultInfo'), downloadLabel=$('downloadLabel');
+  const loadingOverlay=$('loadingOverlay'), loadTxt=$('loadTxt');
   const guide=$('guide'), toast=$('toast');
 
   // ---------- state ----------
@@ -351,7 +361,6 @@
   async function initHands(){
     if(handLandmarker || handsReady) return;
     try{
-      showToast('Memuat deteksi tangan…'); // model ~7MB, sekali di awal recorder
       const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER);
       const { HandLandmarker, FilesetResolver } = vision;
       const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER+'/wasm');
@@ -364,7 +373,6 @@
       try{ handLandmarker = await build('GPU'); }
       catch(gpuErr){ console.warn('GPU delegate gagal, pakai CPU', gpuErr); handLandmarker = await build('CPU'); }
       handsReady=true;
-      hideToast();
     }catch(e){
       console.warn('MediaPipe Tasks Vision gagal dimuat (perlu internet).', e);
       showToast('Deteksi gestur tidak tersedia (butuh koneksi internet). Kamera & rekam tetap berfungsi.', 4500);
@@ -633,8 +641,11 @@
       (function walk(d){ if(!d) return; if(d.tag===5 && d.data && d.data.length>=2) ascArr=Array.from(d.data); if(d.descs) d.descs.forEach(walk); })(esds.esd); }catch(e){}
     const asc = (ascArr && ascArr.length>=5) ? ascArr : ASC_KNOWN; // butuh ASC penuh, bukan 2-byte
     const aMeta = { decoderConfig:{ codec:'mp4a.40.2', description: new Uint8Array(asc) } };
-    const vDurUs = vT.duration/vT.timescale*1e6;
-    let idx=0, off=0; const aDurTs=aT.duration;
+    // Durasi video DIHITUNG dari sample (moov iOS fragmented sering duration=0 -> jangan dipakai)
+    let vDurTs=0; for(const s of vS) vDurTs += s.duration;
+    const vDurUs = (vDurTs>0 ? vDurTs : (vT.duration||0)) / vT.timescale * 1e6;
+    let aDurTs=0; for(const s of aS) aDurTs += s.duration; if(!aDurTs) aDurTs = aT.duration||0;
+    let idx=0, off=0;
     while(true){
       const s=aS[idx]; const ts=Math.round((off+s.dts)/aT.timescale*1e6);
       if(ts>=vDurUs) break;
@@ -679,15 +690,26 @@
   async function goRecorder(){
     home.classList.add('hidden'); recorder.classList.remove('hidden');
     lastVideoTime=-1;
-    if(!handLandmarker) initHands();
-    if(state.audioOn){ loadAudioBuffer(); if(IS_IOS) preloadMux(); } // pra-muat audio + mux
-    if(state.audioOn){ ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); } loadAudioBuffer(); } // pra-muat audio (tombol = gesture)
+    setReady(false); showLoading('Menyiapkan kamera…');
     const ok = await startCamera();
     if(state.rafId) cancelAnimationFrame(state.rafId);
     loop();
+    // siapkan SEMUA sebelum boleh rekam: deteksi tangan + audio (+ mux libs di iOS)
+    showLoading('Menyiapkan deteksi & audio…');
+    const jobs=[ initHands() ];
+    if(state.audioOn){
+      ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); }
+      jobs.push(loadAudioBuffer());
+      if(IS_IOS) jobs.push(loadMP4Box(), loadMp4Muxer());
+    }
+    await Promise.allSettled(jobs);
+    hideLoading(); setReady(true);
     startGuide();
     if(ok) setTimeout(hideToast, 100);
   }
+  function showLoading(txt){ if(loadTxt) loadTxt.textContent=txt||'Menyiapkan…'; loadingOverlay.classList.remove('hidden'); }
+  function hideLoading(){ loadingOverlay.classList.add('hidden'); }
+  function setReady(r){ state.ready=r; recBtn.disabled=!r; recBtn.style.opacity=r?'':'0.5'; }
   function goHome(){
     if(state.recording) stopRecording();
     if(state.rafId){ cancelAnimationFrame(state.rafId); state.rafId=null; }
@@ -710,7 +732,7 @@
   $('startBtn').onclick=goRecorder;
   backBtn.onclick=goHome;
   gearBtn.onclick=()=>popover.classList.toggle('hidden');
-  recBtn.onclick=()=>{ if(state.recording) stopRecording(); else startRecording(); };
+  recBtn.onclick=()=>{ if(!state.ready && !state.recording){ showToast('Masih menyiapkan… tunggu sebentar.', 1500); return; } if(state.recording) stopRecording(); else startRecording(); };
   flipBtn.onclick=async ()=>{
     state.facing = state.facing==='user' ? 'environment' : 'user';
     facingEl.textContent = state.facing==='user' ? 'Depan' : 'Belakang';
