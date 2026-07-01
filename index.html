@@ -289,7 +289,7 @@
   };
 
   // audio graph (created once, lazily) — pakai decoded buffer agar pasti ikut terekam
-  let audioCtx=null, audioDest=null, audioBuffer=null, audioNode=null, audioLoading=null;
+  let audioCtx=null, audioDest=null, audioBuffer=null, audioLoading=null, effectGain=null, effectSource=null;
 
   // ---------- helpers ----------
   function fmt(s){ const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return m+':'+ss; }
@@ -433,13 +433,6 @@
     audioCtx = new AC();
     audioDest = audioCtx.createMediaStreamDestination();
   }
-  // iOS: sumber audio PERTAMA sering senyap (context perlu "warm-up"). Mainkan 1 buffer
-  // hening sekali agar playback nyata di rekaman pertama langsung berbunyi.
-  let audioWarmed=false;
-  function warmUpAudio(){
-    if(audioWarmed || !audioCtx) return; audioWarmed=true;
-    try{ const b=audioCtx.createBuffer(1,1,audioCtx.sampleRate); const s=audioCtx.createBufferSource(); s.buffer=b; s.connect(audioCtx.destination); s.start(0); }catch(e){}
-  }
   function loadAudioBuffer(){
     if(audioBuffer) return Promise.resolve(audioBuffer);
     if(audioLoading) return audioLoading;
@@ -452,19 +445,27 @@
       .catch(e=>{ console.error('Gagal memuat audio efek', e); return null; });
     return audioLoading;
   }
-  function startEffectAudio(){
-    if(!audioCtx || !audioBuffer) return;
-    stopEffectAudio();
-    audioNode = audioCtx.createBufferSource();
-    audioNode.buffer = audioBuffer;
-    audioNode.loop = true;
-    audioNode.connect(audioDest);            // -> ke rekaman
-    audioNode.connect(audioCtx.destination); // -> ke speaker
-    audioNode.start();
+  // Sumber efek berjalan KONTINU (loop) sejak recorder siap, lewat GainNode (default 0).
+  // Rekam = naikkan gain ke 1; stop = 0. Pipeline selalu "panas" -> rekam pertama pun
+  // langsung berbunyi (iOS tak lagi menyenyapkan source pertama).
+  function startContinuousAudio(){
+    if(!audioCtx || !audioBuffer || effectSource) return;
+    if(!effectGain){
+      effectGain = audioCtx.createGain();
+      effectGain.gain.value = 0;
+      effectGain.connect(audioCtx.destination); // speaker
+      effectGain.connect(audioDest);            // track rekaman (desktop)
+    }
+    effectSource = audioCtx.createBufferSource();
+    effectSource.buffer = audioBuffer; effectSource.loop = true;
+    effectSource.connect(effectGain);
+    try{ effectSource.start(0); }catch(e){}
   }
-  function stopEffectAudio(){
-    if(audioNode){ try{ audioNode.stop(); }catch(e){} try{ audioNode.disconnect(); }catch(e){} audioNode=null; }
+  function stopContinuousAudio(){
+    if(effectSource){ try{ effectSource.stop(); }catch(e){} try{ effectSource.disconnect(); }catch(e){} effectSource=null; }
   }
+  function startEffectAudio(){ startContinuousAudio(); if(effectGain) effectGain.gain.value = 1; }
+  function stopEffectAudio(){ if(effectGain) effectGain.gain.value = 0; }
   // iOS: AudioContext mulai "suspended" & hanya bisa di-resume di dalam user gesture.
   // Unlock sekali pada interaksi pertama agar suara efek terdengar & ikut terekam.
   let audioUnlocked=false;
@@ -727,8 +728,7 @@
     const jobs=[ initHands() ];
     if(state.audioOn){
       ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); }
-      warmUpAudio(); // prime iOS audio agar rekam pertama tak senyap
-      jobs.push(loadAudioBuffer());
+      jobs.push(loadAudioBuffer().then(()=>startContinuousAudio())); // sumber kontinu -> rekam pertama bunyi
       if(IS_IOS) jobs.push(loadMP4Box(), loadMp4Muxer());
     }
     await Promise.allSettled(jobs);
@@ -764,7 +764,7 @@
     if(state.recording) stopRecording();
     if(state.rafId){ cancelAnimationFrame(state.rafId); state.rafId=null; }
     stopCameraTracks();
-    stopEffectAudio();
+    stopEffectAudio(); stopContinuousAudio();
     recorder.classList.add('hidden'); modal.classList.add('hidden'); home.classList.remove('hidden');
     dotCam.classList.remove('on'); dotGesture.classList.remove('on');
   }
