@@ -7,6 +7,7 @@ Tool web ringan & open source untuk merekam video dengan **blur otomatis lewat i
 - Rekam video langsung dari kamera HP/perangkat (depan/belakang).
 - **Deteksi gestur tangan** (lebih dari 1 jari terbuka) → area kamera otomatis di-blur.
 - Slider intensitas blur.
+- Hitung mundur sebelum rekam (None/3/5/10 detik, default 3).
 - Efek audio yang ikut tergabung ke dalam video saat direkam.
 - Preview hasil & download (format `webm`/`mp4` otomatis sesuai dukungan browser).
 - Panduan onboarding 3 langkah.

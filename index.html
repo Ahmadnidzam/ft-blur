@@ -47,6 +47,11 @@
   .loading-overlay .spinner{width:44px;height:44px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:#0a84ff;animation:spin .8s linear infinite}
   .loading-overlay .load-txt{font-size:14px;font-weight:500;letter-spacing:-.1px;opacity:.9;text-align:center;padding:0 24px}
   @keyframes spin{to{transform:rotate(360deg)}}
+  .cd-sel{appearance:none;-webkit-appearance:none;background:#f0f0f2;border:none;border-radius:9px;padding:7px 28px 7px 12px;font-size:14px;font-weight:600;color:#1d1d1f;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center}
+  .cd-overlay{position:absolute;inset:0;z-index:26;display:flex;align-items:center;justify-content:center;background:rgba(10,10,12,.5);backdrop-filter:blur(4px)}
+  .cd-overlay.hidden{display:none}
+  .cd-overlay span{font-size:120px;font-weight:700;color:#fff;text-shadow:0 4px 24px rgba(0,0,0,.5);animation:cdpulse 1s ease-out infinite}
+  @keyframes cdpulse{0%{transform:scale(.7);opacity:.4}30%{transform:scale(1);opacity:1}100%{transform:scale(1.05);opacity:.85}}
   .overlay{position:relative;z-index:3;flex:1;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}
   .top-zone{display:flex;flex-direction:column;gap:12px;padding:calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 30px calc(16px + env(safe-area-inset-left));background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
   .row{display:flex;align-items:center;justify-content:space-between;pointer-events:auto}
@@ -158,6 +163,7 @@
         <div class="spinner"></div>
         <div class="load-txt" id="loadTxt">Menyiapkan…</div>
       </div>
+      <div id="countdownOverlay" class="cd-overlay hidden"><span id="cdNum">3</span></div>
 
       <div class="overlay">
         <div class="top-zone">
@@ -206,6 +212,19 @@
           </div>
           <input type="range" class="ftslider" id="blurRange" min="0" max="100" value="50" style="width:100%;accent-color:#0066cc">
         </div>
+        <div class="divider"></div>
+        <div class="pop-row">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span class="lbl">Hitung Mundur</span>
+            <span class="desc">Jeda sebelum rekam mulai</span>
+          </div>
+          <select id="countdownSel" class="cd-sel" aria-label="Hitung mundur">
+            <option value="0">None</option>
+            <option value="3" selected>3</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+          </select>
+        </div>
       </div>
 
       <!-- onboarding guide -->
@@ -252,6 +271,7 @@
   const resultVideo=$('resultVideo'), downloadBtn=$('downloadBtn'), closeModal=$('closeModal'), reRecord=$('reRecord');
   const resultInfo=$('resultInfo'), downloadLabel=$('downloadLabel');
   const loadingOverlay=$('loadingOverlay'), loadTxt=$('loadTxt');
+  const countdownSel=$('countdownSel'), countdownOverlay=$('countdownOverlay'), cdNum=$('cdNum');
   const guide=$('guide'), toast=$('toast');
 
   // ---------- state ----------
@@ -259,6 +279,7 @@
     facing:'user',        // 'user' = depan, 'environment' = belakang
     audioOn:true,
     blur:50,              // 0-100
+    countdown:3,          // detik hitung mundur sebelum rekam (0=none)
     recording:false,
     gestureActive:false,
     stream:null,          // camera MediaStream
@@ -411,6 +432,13 @@
     if(!AC) return;
     audioCtx = new AC();
     audioDest = audioCtx.createMediaStreamDestination();
+  }
+  // iOS: sumber audio PERTAMA sering senyap (context perlu "warm-up"). Mainkan 1 buffer
+  // hening sekali agar playback nyata di rekaman pertama langsung berbunyi.
+  let audioWarmed=false;
+  function warmUpAudio(){
+    if(audioWarmed || !audioCtx) return; audioWarmed=true;
+    try{ const b=audioCtx.createBuffer(1,1,audioCtx.sampleRate); const s=audioCtx.createBufferSource(); s.buffer=b; s.connect(audioCtx.destination); s.start(0); }catch(e){}
   }
   function loadAudioBuffer(){
     if(audioBuffer) return Promise.resolve(audioBuffer);
@@ -699,6 +727,7 @@
     const jobs=[ initHands() ];
     if(state.audioOn){
       ensureAudioCtx(); if(audioCtx && audioCtx.state==='suspended'){ audioCtx.resume().catch(()=>{}); }
+      warmUpAudio(); // prime iOS audio agar rekam pertama tak senyap
       jobs.push(loadAudioBuffer());
       if(IS_IOS) jobs.push(loadMP4Box(), loadMp4Muxer());
     }
@@ -710,7 +739,28 @@
   function showLoading(txt){ if(loadTxt) loadTxt.textContent=txt||'Menyiapkan…'; loadingOverlay.classList.remove('hidden'); }
   function hideLoading(){ loadingOverlay.classList.add('hidden'); }
   function setReady(r){ state.ready=r; recBtn.disabled=!r; recBtn.style.opacity=r?'':'0.5'; }
+  // ---------- hitung mundur ----------
+  let cdTimer=null, cdResolve=null;
+  function runCountdown(n){
+    return new Promise((resolve)=>{
+      if(!n){ resolve(true); return; }
+      cdResolve=resolve; state.countingDown=true; cdNum.textContent=n;
+      countdownOverlay.classList.remove('hidden');
+      let left=n;
+      cdTimer=setInterval(()=>{
+        left--;
+        if(left<=0){ endCountdown(true); }
+        else cdNum.textContent=left;
+      },1000);
+    });
+  }
+  function endCountdown(go){
+    if(cdTimer){ clearInterval(cdTimer); cdTimer=null; }
+    countdownOverlay.classList.add('hidden'); state.countingDown=false;
+    const r=cdResolve; cdResolve=null; if(r) r(go);
+  }
   function goHome(){
+    if(state.countingDown) endCountdown(false);
     if(state.recording) stopRecording();
     if(state.rafId){ cancelAnimationFrame(state.rafId); state.rafId=null; }
     stopCameraTracks();
@@ -732,7 +782,14 @@
   $('startBtn').onclick=goRecorder;
   backBtn.onclick=goHome;
   gearBtn.onclick=()=>popover.classList.toggle('hidden');
-  recBtn.onclick=()=>{ if(!state.ready && !state.recording){ showToast('Masih menyiapkan… tunggu sebentar.', 1500); return; } if(state.recording) stopRecording(); else startRecording(); };
+  recBtn.onclick=async ()=>{
+    if(state.recording){ stopRecording(); return; }
+    if(state.countingDown){ endCountdown(false); return; } // tap saat hitung mundur = batal
+    if(!state.ready){ showToast('Masih menyiapkan… tunggu sebentar.', 1500); return; }
+    const go = await runCountdown(state.countdown|0);
+    if(go && !state.recording) startRecording();
+  };
+  countdownSel.onchange=(e)=>{ state.countdown=Number(e.target.value)||0; };
   flipBtn.onclick=async ()=>{
     state.facing = state.facing==='user' ? 'environment' : 'user';
     facingEl.textContent = state.facing==='user' ? 'Depan' : 'Belakang';
