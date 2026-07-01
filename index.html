@@ -351,6 +351,7 @@
   async function initHands(){
     if(handLandmarker || handsReady) return;
     try{
+      showToast('Memuat deteksi tangan…'); // model ~7MB, sekali di awal recorder
       const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER);
       const { HandLandmarker, FilesetResolver } = vision;
       const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+TV_VER+'/wasm');
@@ -363,6 +364,7 @@
       try{ handLandmarker = await build('GPU'); }
       catch(gpuErr){ console.warn('GPU delegate gagal, pakai CPU', gpuErr); handLandmarker = await build('CPU'); }
       handsReady=true;
+      hideToast();
     }catch(e){
       console.warn('MediaPipe Tasks Vision gagal dimuat (perlu internet).', e);
       showToast('Deteksi gestur tidak tersedia (butuh koneksi internet). Kamera & rekam tetap berfungsi.', 4500);
@@ -609,8 +611,11 @@
       const ts=Math.round(s.cts/vT.timescale*1e6), dur=Math.round(s.duration/vT.timescale*1e6), cto=Math.round((s.cts-s.dts)/vT.timescale*1e6);
       muxer.addVideoChunkRaw(s.data, s.is_sync?'key':'delta', ts, dur, vMeta, cto);
     }
-    // ASC AAC-LC 44.1kHz stereo = 0x12 0x10 (aset audio tetap)
-    const aMeta = { decoderConfig:{ codec:'mp4a.40.2', description: new Uint8Array([0x12,0x10]) } };
+    // ASC (AudioSpecificConfig) diambil UTUH dari esds sumber — bukan tebakan 2-byte.
+    // ASC terpotong bikin AAC gagal di-decode di browser/iOS (senyap walau track ada).
+    const esds = a.file.getTrackById(aT.id).mdia.minf.stbl.stsd.entries[0].esds;
+    let ascArr=null; (function walk(d){ if(!d) return; if(d.tag===5 && d.data) ascArr=d.data; if(d.descs) d.descs.forEach(walk); })(esds.esd);
+    const aMeta = { decoderConfig:{ codec:'mp4a.40.2', description: new Uint8Array(ascArr||[0x12,0x10]) } };
     const vDurUs = vT.duration/vT.timescale*1e6;
     let idx=0, off=0; const aDurTs=aT.duration;
     while(true){
